@@ -9,23 +9,32 @@ const demoMatches = [
   { map: "Province", mode: "5×5", result: "Победа", score: "13 : 6", elo: "+21", date: "18 ноя" }
 ];
 
+type LeaderRow={id:string;nickname:string;elo:number;position:number;challenger:boolean;level:number};
 function Home({ go }: { go: (tab: Tab) => void }) {
-  return <>
-    <section className="hero">
-      <small>СОРЕВНОВАТЕЛЬНАЯ ПЛАТФОРМА · STANDOFF 2</small>
-      <h1>ИГРАЙ.<br /><em>ПОДНИМАЙСЯ.</em></h1>
-      <p>Твой рейтинг. Твои матчи. Твой путь на вершину.</p>
-      <button className="primary" onClick={() => go("Играть")}>НАЙТИ МАТЧ　↗</button>
-      <button className="secondary" onClick={() => go("Профиль")}>МОЙ ПРОФИЛЬ</button>
-      <b className="watermark">R</b>
-    </section>
-    <section className="grid">
-      <article className="card"><small>МАТЧМЕЙКИНГ</small><h2>Готов к игре?</h2><p>Выбери режим и найди игроков с близким рейтингом и игровым опытом.</p><button className="primary wide" onClick={() => go("Играть")}>ПЕРЕЙТИ К ПОДБОРУ　→</button><small className="hint">Подбор пока работает в демонстрационном режиме.</small></article>
-      <article className="card"><small>ТВОЙ ПРОГРЕСС</small><div className="rank"><b>3</b><div><h2>Уровень 3</h2><p>Стартовый рейтинг</p></div></div><div className="elo">751 <span>ELO</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{ width: "0%" }} /></div><p className="between">До следующего уровня <b>149 ELO · 900</b></p></article>
-    </section>
-    <section className="features"><div><b>ЧЕСТНЫЙ ПОДБОР</b><span>Учитываем рейтинг и игровой опыт</span></div><div><b>ЕДИНЫЙ АККАУНТ</b><span>Android и Telegram в одном профиле</span></div><div><b>ТВОЯ СТАТИСТИКА</b><span>История матчей и прогресс ELO</span></div></section>
-    <section className="home-extras"><article className="card"><small>СЕЗОННЫЙ РЕЙТИНГ</small><h2>Таблица лидеров</h2><div className="leader-row"><b>#1</b><span>ProAim</span><strong>2480 ELO</strong></div><div className="leader-row"><b>#2</b><span>Vortex</span><strong>2315 ELO</strong></div><div className="leader-row"><b>#3</b><span>Raven</span><strong>2190 ELO</strong></div><p className="hint">Демонстрационные игроки. Реальный рейтинг появится после запуска аккаунтов и матчей.</p></article><article className="card"><small>СЕЗОН 01 · ПЛАНИРУЕТСЯ</small><h2>Соревнуйся за место в топе</h2><p>Сезонные таблицы, турниры, награды и отдельная статистика каждого сезона — часть дорожной карты RATEIT.</p><button className="secondary wide" onClick={()=>go("Играть")}>ТРЕНИРОВАТЬСЯ С БОТАМИ ↗</button></article></section>
-  </>;
+ const [leaders,setLeaders]=useState<LeaderRow[]>([]);
+ const [leaderLoading,setLeaderLoading]=useState(true);
+ useEffect(()=>{
+  fetch("https://rateit-api-6chg.onrender.com/api/v1/leaderboard")
+   .then(async response=>{const data=await response.json();if(!response.ok)throw new Error("Не удалось загрузить рейтинг.");setLeaders(data.players||[])})
+   .catch(()=>setLeaders([]))
+   .finally(()=>setLeaderLoading(false));
+ },[]);
+ return <>
+  <section className="hero">
+   <small>СОРЕВНОВАТЕЛЬНАЯ ПЛАТФОРМА · STANDOFF 2</small>
+   <h1>ИГРАЙ.<br/><em>ПОДНИМАЙСЯ.</em></h1>
+   <p>Твой рейтинг. Твои матчи. Твой путь на вершину.</p>
+   <button className="primary" onClick={()=>go("Играть")}>НАЙТИ МАТЧ　↗</button>
+   <button className="secondary" onClick={()=>go("Профиль")}>МОЙ ПРОФИЛЬ</button>
+   <b className="watermark">R</b>
+  </section>
+  <section className="grid">
+   <article className="card"><small>МАТЧМЕЙКИНГ</small><h2>Готов к игре?</h2><p>Выбери режим и найди игроков с близким рейтингом и игровым опытом.</p><button className="primary wide" onClick={()=>go("Играть")}>ПЕРЕЙТИ К ПОДБОРУ　→</button><small className="hint">Пока доступен тестовый режим. Реальная очередь — следующий этап.</small></article>
+   <article className="card"><small>СТАРТОВЫЙ ПРОГРЕСС</small><div className="rank"><b>3</b><div><h2>Уровень 3</h2><p>Стартовый рейтинг</p></div></div><div className="elo">751 <span>ELO</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{width:"0%"}}/></div><p className="between">Следующий уровень <b>149 ELO · 900</b></p></article>
+  </section>
+  <section className="features"><div><b>ЧЕСТНЫЙ ПОДБОР</b><span>Учитываем рейтинг и игровой опыт</span></div><div><b>ЕДИНЫЙ АККАУНТ</b><span>Android и Telegram в одном профиле</span></div><div><b>ТВОЯ СТАТИСТИКА</b><span>История матчей и прогресс ELO</span></div></section>
+  <section className="home-extras"><article className="card"><small>ГЛОБАЛЬНЫЙ РЕЙТИНГ</small><h2>Таблица лидеров</h2>{leaderLoading?<p className="hint">Загружаем рейтинг…</p>:leaders.length===0?<p className="hint">Пока нет зарегистрированных игроков. Стань одним из первых!</p>:leaders.slice(0,10).map(player=><div className="leader-row" key={player.id}><b>#{player.position}</b><span>{player.nickname}{player.challenger?" · Challenger":""}</span><strong>{player.elo} ELO</strong></div>)}<p className="hint">Рейтинг формируется по ELO игроков RATEIT. Демонстрационные аккаунты не учитываются.</p></article><article className="card"><small>СЕЗОНЫ · ПЛАНИРУЮТСЯ</small><h2>Соревнуйся за место в топе</h2><p>Сезонные таблицы, турниры, награды и отдельная статистика каждого сезона — часть дорожной карты RATEIT.</p><button className="secondary wide" onClick={()=>go("Играть")}>ПЕРЕЙТИ К ТРЕНИРОВКЕ ↗</button></article></section>
+ </>;
 }
 
 function Play() {
