@@ -338,6 +338,16 @@ app.get("/api/v1/matchmaking/queue/status",async(request,reply)=>{
   if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
   const queued=await dbPool.query("SELECT mode,joined_at,(SELECT count(*) FROM matchmaking_queue q2 WHERE q2.mode=matchmaking_queue.mode)::int AS players_found FROM matchmaking_queue WHERE user_id=$1",[user.id]);
   if(queued.rowCount)return {status:"searching",mode:queued.rows[0].mode,joinedAt:queued.rows[0].joined_at,playersFound:queued.rows[0].players_found,playersNeeded:queued.rows[0].mode==="2x2"?4:10};
+  await dbPool.query(
+    `UPDATE matches SET status='cancelled' WHERE status='ready' AND created_at<now()-interval '30 seconds'
+     AND id IN (SELECT match_id FROM match_players WHERE user_id=$1)`,
+    [user.id]
+  );
+  await dbPool.query(
+    `UPDATE match_ready_checks SET status='expired',responded_at=now()
+     WHERE user_id=$1 AND status='pending' AND match_id IN (SELECT id FROM matches WHERE status='cancelled')`,
+    [user.id]
+  );
   const match=await dbPool.query(
     `SELECT m.id,m.mode,m.status,rc.status AS ready_status,m.created_at
      FROM match_players mp JOIN matches m ON m.id=mp.match_id
@@ -385,8 +395,14 @@ app.post<{Params:{matchId:string}}>("/api/v1/matches/:matchId/ready",async(reque
   const client=await dbPool.connect();
   try{
     await client.query("BEGIN");
-    const match=await client.query("SELECT id,status FROM matches WHERE id=$1 FOR UPDATE",[request.params.matchId]);
+    const match=await client.query("SELECT id,status,created_at FROM matches WHERE id=$1 FOR UPDATE",[request.params.matchId]);
     if(!match.rowCount||match.rows[0].status!=="ready"){await client.query("ROLLBACK");return reply.code(404).send({error:"Матч больше не ожидает подтверждения."});}
+    if(Date.now()-new Date(match.rows[0].created_at).getTime()>30000){
+      await client.query("UPDATE matches SET status='cancelled' WHERE id=$1",[request.params.matchId]);
+      await client.query("UPDATE match_ready_checks SET status='expired',responded_at=now() WHERE match_id=$1 AND status='pending'",[request.params.matchId]);
+      await client.query("COMMIT");
+      return reply.code(410).send({error:"Время подтверждения матча истекло. Вернись в очередь."});
+    }
     const own=await client.query("UPDATE match_ready_checks SET status='accepted',responded_at=now() WHERE match_id=$1 AND user_id=$2 AND status='pending' RETURNING user_id",[request.params.matchId,user.id]);
     if(!own.rowCount){await client.query("ROLLBACK");return reply.code(409).send({error:"Ты уже подтвердил матч или не участвуешь в нём."});}
     const pending=await client.query("SELECT count(*)::int AS total FROM match_ready_checks WHERE match_id=$1 AND status='pending'",[request.params.matchId]);
