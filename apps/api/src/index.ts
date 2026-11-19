@@ -1,5 +1,6 @@
 import Fastify from "fastify";
-import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import cors from "@fastify/cors";
 import { checkDatabase, dbPool } from "./db.js";
 import {
@@ -132,6 +133,109 @@ app.get<{ Querystring: { elo?: string } }>("/api/v1/elo/rank", async (request, r
   };
 });
 
+
+
+const scrypt = promisify(scryptCallback);
+const passwordHash = async (password: string) => {
+  const salt = randomBytes(16).toString("hex");
+  const derived = await scrypt(password, salt, 64) as Buffer;
+  return `scrypt:${salt}:${derived.toString("hex")}`;
+};
+const passwordMatches = async (password: string, stored: string) => {
+  const parts = stored.split(":");
+  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+  const derived = await scrypt(password, parts[1], 64) as Buffer;
+  const expected = Buffer.from(parts[2], "hex");
+  return expected.length === derived.length && timingSafeEqual(expected, derived);
+};
+const bearerToken = (request: { headers: { authorization?: string } }) => {
+  const value = request.headers.authorization;
+  return value?.startsWith("Bearer ") ? value.slice(7) : null;
+};
+async function createSession(userId: string) {
+  if (!dbPool) throw new Error("Database unavailable");
+  const token = randomBytes(32).toString("base64url");
+  await dbPool.query("INSERT INTO auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')", [userId, sha256(token)]);
+  return token;
+}
+async function authenticatedUser(request: { headers: { authorization?: string } }) {
+  if (!dbPool) return null;
+  const token = bearerToken(request);
+  if (!token || token.length > 128) return null;
+  const result = await dbPool.query(
+    "SELECT u.id,u.nickname,u.login_name,u.email,u.standoff2_id,ps.elo,ps.level,ps.verified_hours FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN player_stats ps ON ps.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at>now()",
+    [sha256(token)]
+  );
+  if (!result.rowCount) return null;
+  await dbPool.query("UPDATE auth_sessions SET last_used_at=now() WHERE token_hash=$1", [sha256(token)]);
+  return result.rows[0];
+}
+
+app.post<{ Body: { nickname?: string; loginName?: string; email?: string; password?: string } }>("/api/v1/auth/register", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error: "Сервис аккаунтов временно недоступен." });
+  const nickname = request.body?.nickname?.trim().replace(/\\s+/g," ");
+  const loginName = request.body?.loginName?.trim();
+  const email = request.body?.email?.trim().toLowerCase();
+  const password = request.body?.password;
+  if (!nickname || nickname.length > 24 || !loginName || !/^[a-zA-Z0-9_]{3,24}$/.test(loginName) || !email || email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || !password || password.length < 8 || password.length > 128) {
+    return reply.code(400).send({ error: "Проверь ник, логин (3–24 символа: латиница, цифры, _), почту и пароль (8–128 символов)." });
+  }
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const user = await client.query("INSERT INTO users(nickname,login_name,email,password_hash) VALUES($1,$2,$3,$4) RETURNING id", [nickname,loginName,email,await passwordHash(password)]);
+    const userId = user.rows[0].id as string;
+    await client.query("INSERT INTO player_stats(user_id,elo,level) VALUES($1,751,3)",[userId]);
+    await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'email',$2)",[userId,email]);
+    const token = randomBytes(32).toString("base64url");
+    await client.query("INSERT INTO auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')",[userId,sha256(token)]);
+    await client.query("COMMIT");
+    return reply.code(201).send({ token, user:{id:userId,nickname,loginName,email,elo:751,level:3} });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    const pgError = error as { code?: string };
+    if (pgError.code === "23505") return reply.code(409).send({ error: "Этот логин или адрес почты уже зарегистрирован." });
+    request.log.error(error);
+    return reply.code(500).send({ error: "Не удалось создать аккаунт." });
+  } finally { client.release(); }
+});
+
+app.post<{ Body: { identifier?: string; password?: string } }>("/api/v1/auth/login", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error: "Сервис аккаунтов временно недоступен." });
+  const identifier = request.body?.identifier?.trim();
+  const password = request.body?.password;
+  if (!identifier || !password) return reply.code(400).send({ error: "Укажи логин или почту и пароль." });
+  const result = await dbPool.query("SELECT id,nickname,login_name,email,password_hash FROM users WHERE lower(login_name)=lower($1) OR lower(email)=lower($1) LIMIT 1",[identifier]);
+  const user = result.rows[0];
+  if (!user || !user.password_hash || !(await passwordMatches(password,user.password_hash))) return reply.code(401).send({ error: "Неверный логин, почта или пароль." });
+  const token = await createSession(user.id);
+  return { token,user:{id:user.id,nickname:user.nickname,loginName:user.login_name,email:user.email} };
+});
+
+app.get("/api/v1/auth/me", async (request, reply) => {
+  const user = await authenticatedUser(request);
+  if (!user) return reply.code(401).send({ error: "Войди в аккаунт RATEIT." });
+  return { user };
+});
+
+app.post("/api/v1/auth/logout", async (request, reply) => {
+  const token = bearerToken(request);
+  if (token && dbPool) await dbPool.query("DELETE FROM auth_sessions WHERE token_hash=$1",[sha256(token)]);
+  return { ok:true };
+});
+
+app.post<{ Body: { currentPassword?: string; newPassword?: string } }>("/api/v1/auth/password", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error:"База данных недоступна." });
+  const user = await authenticatedUser(request);
+  if (!user) return reply.code(401).send({ error:"Войди в аккаунт RATEIT." });
+  const currentPassword=request.body?.currentPassword, newPassword=request.body?.newPassword;
+  const found=await dbPool.query("SELECT password_hash FROM users WHERE id=$1",[user.id]);
+  if (!currentPassword || !found.rows[0]?.password_hash || !(await passwordMatches(currentPassword,found.rows[0].password_hash))) return reply.code(400).send({error:"Текущий пароль неверен."});
+  if (!newPassword || newPassword.length<8 || newPassword.length>128) return reply.code(400).send({error:"Новый пароль должен содержать 8–128 символов."});
+  await dbPool.query("UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2",[await passwordHash(newPassword),user.id]);
+  await dbPool.query("DELETE FROM auth_sessions WHERE user_id=$1 AND token_hash<>$2",[user.id,sha256(bearerToken(request) ?? "")]);
+  return {ok:true,message:"Пароль изменён. Другие сессии завершены."};
+});
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramBotUsername = "Rateit_auth_bot";
