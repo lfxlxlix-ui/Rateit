@@ -5,7 +5,11 @@ import {
   MAX_HOURS_DIFFERENCE,
   getHoursPrefix,
   getRank,
-  isHoursRangeCompatible
+  isHoursRangeCompatible,
+  MAX_PLAYER_HOURS,
+  normalizeNickname,
+  normalizeStandoff2Id,
+  parsePlayerHours
 } from "../../../packages/shared/src/index.js";
 
 test("новый игрок начинает с 751 ELO и получает уровень 3", () => {
@@ -63,4 +67,33 @@ test("разница часов 50 включительно допускаетс
   assert.equal(isHoursRangeCompatible(150, 100), true);
   assert.equal(isHoursRangeCompatible(100, 151), false);
   assert.equal(isHoursRangeCompatible(100, 100), true);
+});
+
+
+test("ник нормализуется и ограничивается 24 символами", () => {
+  assert.equal(normalizeNickname("  Player   One  "), "Player One");
+  assert.equal(normalizeNickname(""), null);
+  assert.equal(normalizeNickname("x".repeat(25)), null);
+  assert.equal(normalizeNickname("Player\\nAdmin"), null);
+  assert.equal(normalizeNickname(123), null);
+});
+
+test("Standoff 2 ID проверяется без предположений о его формате", () => {
+  assert.equal(normalizeStandoff2Id("  12345-abc  "), "12345-abc");
+  assert.equal(normalizeStandoff2Id(""), null);
+  assert.equal(normalizeStandoff2Id("x".repeat(65)), null);
+  assert.equal(normalizeStandoff2Id("abc\\u0000def"), null);
+  assert.equal(normalizeStandoff2Id(12345), null);
+});
+
+test("часы профиля принимают целые значения от 0 до 100000", () => {
+  assert.equal(MAX_PLAYER_HOURS, 100000);
+  assert.equal(parsePlayerHours("187"), 187);
+  assert.equal(parsePlayerHours(0), 0);
+  assert.equal(parsePlayerHours(""), null);
+  assert.equal(parsePlayerHours(undefined), null);
+  assert.equal(parsePlayerHours("-1"), null);
+  assert.equal(parsePlayerHours("1.5"), null);
+  assert.equal(parsePlayerHours("100001"), null);
+  assert.equal(parsePlayerHours("abc"), null);
 });
