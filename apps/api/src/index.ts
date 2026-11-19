@@ -336,8 +336,8 @@ app.get("/api/v1/matchmaking/queue/status",async(request,reply)=>{
   if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
   const user=await authenticatedUser(request);
   if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
-  const queued=await dbPool.query("SELECT mode,joined_at FROM matchmaking_queue WHERE user_id=$1",[user.id]);
-  if(queued.rowCount)return {status:"searching",mode:queued.rows[0].mode,joinedAt:queued.rows[0].joined_at};
+  const queued=await dbPool.query("SELECT mode,joined_at,(SELECT count(*) FROM matchmaking_queue q2 WHERE q2.mode=matchmaking_queue.mode)::int AS players_found FROM matchmaking_queue WHERE user_id=$1",[user.id]);
+  if(queued.rowCount)return {status:"searching",mode:queued.rows[0].mode,joinedAt:queued.rows[0].joined_at,playersFound:queued.rows[0].players_found,playersNeeded:queued.rows[0].mode==="2x2"?4:10};
   const match=await dbPool.query(
     `SELECT m.id,m.mode,m.status,rc.status AS ready_status,m.created_at
      FROM match_players mp JOIN matches m ON m.id=mp.match_id
