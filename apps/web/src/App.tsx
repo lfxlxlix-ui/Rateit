@@ -24,6 +24,7 @@ function Home({ go }: { go: (tab: Tab) => void }) {
       <article className="card"><small>ТВОЙ ПРОГРЕСС</small><div className="rank"><b>3</b><div><h2>Уровень 3</h2><p>Стартовый рейтинг</p></div></div><div className="elo">751 <span>ELO</span></div><div className="bar"><i /></div><p className="between">До следующего уровня <b>900 ELO</b></p></article>
     </section>
     <section className="features"><div><b>ЧЕСТНЫЙ ПОДБОР</b><span>Учитываем рейтинг и игровой опыт</span></div><div><b>ЕДИНЫЙ АККАУНТ</b><span>Android и Telegram в одном профиле</span></div><div><b>ТВОЯ СТАТИСТИКА</b><span>История матчей и прогресс ELO</span></div></section>
+    <section className="home-extras"><article className="card"><small>СЕЗОННЫЙ РЕЙТИНГ</small><h2>Таблица лидеров</h2><div className="leader-row"><b>#1</b><span>ProAim</span><strong>2480 ELO</strong></div><div className="leader-row"><b>#2</b><span>Vortex</span><strong>2315 ELO</strong></div><div className="leader-row"><b>#3</b><span>Raven</span><strong>2190 ELO</strong></div><p className="hint">Демонстрационные игроки. Реальный рейтинг появится после запуска аккаунтов и матчей.</p></article><article className="card"><small>СЕЗОН 01 · ПЛАНИРУЕТСЯ</small><h2>Соревнуйся за место в топе</h2><p>Сезонные таблицы, турниры, награды и отдельная статистика каждого сезона — часть дорожной карты RATEIT.</p><button className="secondary wide" onClick={()=>go("Играть")}>ТРЕНИРОВАТЬСЯ С БОТАМИ ↗</button></article></section>
   </>;
 }
 
