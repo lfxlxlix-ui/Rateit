@@ -181,12 +181,77 @@ function Profile() {
  return <section className="page"><small>АККАУНТ И СТАТИСТИКА</small><h1 className="page-title">ТВОЙ <em>ПРОФИЛЬ</em></h1><article className="card profile-card"><div className="profile-head"><div className="profile-avatar">{profile.nickname.slice(0,1).toUpperCase()}</div><div><h2>{profile.nickname}</h2><p>Standoff 2 ID: {profile.playerId||"не указан"}</p><p>Игровые часы: {shownHours}</p></div><b className="level-badge">3</b></div>{editing?<div className="profile-editor"><label>Игровой ник<input maxLength={24} value={draft.nickname} onChange={e=>setDraft({...draft,nickname:e.target.value})}/></label><label>Standoff 2 ID<input maxLength={64} value={draft.playerId} onChange={e=>setDraft({...draft,playerId:e.target.value})} placeholder="Введи свой ID"/></label><label>Игровые часы<input inputMode="numeric" value={draft.hours} onChange={e=>setDraft({...draft,hours:e.target.value})} placeholder="Например, 187"/></label><div className="editor-actions"><button className="primary" onClick={save}>СОХРАНИТЬ</button><button className="secondary" onClick={()=>{setDraft(profile);setEditing(false);setMessage("")}}>ОТМЕНА</button></div></div>:<button className="secondary edit-profile" onClick={()=>{setDraft(profile);setEditing(true)}}>РЕДАКТИРОВАТЬ ПРОФИЛЬ ✎</button>}{message&&<p className="hint" role="status">{message}</p>}<div className="elo">751 <span>ELO · УРОВЕНЬ 3</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{width:"0%"}}/></div><p className="between">Следующий уровень <b>149 ELO · 900</b></p><div className="stats-grid"><div><b>—</b><span>K/D</span></div><div><b>—</b><span>Победы</span></div><div><b>—</b><span>Матчи</span></div><div><b>—</b><span>Винрейт</span></div></div><p className="notice">Это демо-профиль. Данные сохраняются в этом браузере, но пока не отправляются на сервер и не проверяются по Standoff 2.</p></article></section>;
 }
 
+
+type AuthMode = "login" | "register" | "recover";
+const authProviders = [
+  { id: "google", label: "Google", mark: "G" },
+  { id: "telegram", label: "Telegram", mark: "➤" },
+  { id: "yandex", label: "Яндекс ID", mark: "Я" },
+  { id: "vk", label: "VK ID", mark: "ᴠκ" },
+  { id: "facebook", label: "Facebook", mark: "f" }
+] as const;
+
+function AuthPanel({ close }: { close: () => void }) {
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [password, setPassword] = useState("");
+  const [notice, setNotice] = useState("");
+  const title = mode === "register" ? "СОЗДАТЬ АККАУНТ" : mode === "recover" ? "ВОССТАНОВЛЕНИЕ" : "С ВОЗВРАЩЕНИЕМ";
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (mode === "register" && password.length < 8) {
+      setNotice("Пароль должен содержать минимум 8 символов.");
+      return;
+    }
+    if (!identifier.trim() && mode !== "register") {
+      setNotice("Введи логин или почту.");
+      return;
+    }
+    setNotice("Интерфейс готов. Реальная авторизация будет доступна после подключения серверной системы аккаунтов.");
+  };
+
+  return <div className="auth-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <section className="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <button className="auth-close" onClick={close} aria-label="Закрыть окно">×</button>
+      <div className="auth-brand">RATE<span>IT</span></div>
+      <small>ЕДИНЫЙ АККАУНТ · ВСЕ ПЛАТФОРМЫ</small>
+      <h1 id="auth-title">{title}</h1>
+      <p className="auth-subtitle">{mode === "register" ? "Создай профиль и собери все способы входа в одном месте." : mode === "recover" ? "Укажи почту, привязанную к аккаунту RATEIT." : "Войди удобным способом и продолжай свой путь."}</p>
+      {mode !== "recover" && <div className="auth-providers">
+        {authProviders.map((provider) => <button type="button" key={provider.id} onClick={() => setNotice(`${provider.label}: подключение появится после настройки провайдера.`)}>
+          <b>{provider.mark}</b><span>{provider.label}</span><i>↗</i>
+        </button>)}
+      </div>}
+      {mode !== "recover" && <div className="auth-divider"><span>ИЛИ ПО ПАРОЛЮ</span></div>}
+      <form onSubmit={submit} className="auth-form">
+        {mode === "register" && <label>Игровой ник<input required maxLength={24} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Твой ник в RATEIT" /></label>}
+        {mode === "register" && <label>Электронная почта<input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" /></label>}
+        {mode !== "register" && <label>{mode === "recover" ? "Электронная почта" : "Логин или электронная почта"}<input required type={mode === "recover" ? "email" : "text"} value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder={mode === "recover" ? "name@example.com" : "Логин или name@example.com"} /></label>}
+        {mode !== "recover" && <label>Пароль<input required type="password" minLength={8} value={password} onChange={e => setPassword(e.target.value)} placeholder="Минимум 8 символов" autoComplete={mode === "register" ? "new-password" : "current-password"} /></label>}
+        <button className="primary wide" type="submit">{mode === "register" ? "СОЗДАТЬ АККАУНТ" : mode === "recover" ? "ВОССТАНОВИТЬ ДОСТУП" : "ВОЙТИ В RATEIT"} ↗</button>
+      </form>
+      {notice && <p className="auth-notice" role="status">{notice}</p>}
+      <div className="auth-links">
+        {mode === "login" && <><button onClick={() => {setMode("recover");setNotice("");}}>Забыли пароль?</button><button onClick={() => {setMode("register");setNotice("");}}>Создать аккаунт</button></>}
+        {mode === "register" && <button onClick={() => {setMode("login");setNotice("");}}>Уже есть аккаунт? Войти</button>}
+        {mode === "recover" && <button onClick={() => {setMode("login");setNotice("");}}>Вернуться ко входу</button>}
+      </div>
+      <p className="auth-footnote">Демо-интерфейс. Пароли и данные авторизации не сохраняются и никуда не отправляются.</p>
+    </section>
+  </div>;
+}
+
 export default function App() {
   const [active, setActive] = useState<Tab>("Главная");
+  const [authOpen, setAuthOpen] = useState(false);
   const content = active === "Главная" ? <Home go={setActive} /> : active === "Играть" ? <Play /> : active === "Друзья" ? <Friends /> : active === "История" ? <History /> : <Profile />;
   return <main className="app">
-    <header><a className="logo" onClick={() => setActive("Главная")}>RATE<span>IT</span></a><div className="online">● ПРОЕКТ В РАЗРАБОТКЕ</div><button className="avatar" onClick={() => setActive("Профиль")}>R</button></header>
+    <header><a className="logo" onClick={() => setActive("Главная")}>RATE<span>IT</span></a><div className="online">● ПРОЕКТ В РАЗРАБОТКЕ</div><div className="header-actions"><button className="login-trigger" onClick={() => setAuthOpen(true)}>ВОЙТИ ↗</button><button className="avatar" onClick={() => setActive("Профиль")}>R</button></div></header>
     {content}
+    {authOpen && <AuthPanel close={() => setAuthOpen(false)} />}
     <nav aria-label="Основная навигация">{tabs.map((t, i) => <button key={t} aria-current={active === t ? "page" : undefined} className={active === t ? "active" : ""} onClick={() => setActive(t)}><strong>{["⌂", "♧", "+", "▤", "◉"][i]}</strong>{t}</button>)}</nav>
   </main>;
 }
