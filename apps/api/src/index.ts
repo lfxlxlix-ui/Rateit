@@ -238,12 +238,14 @@ app.post<{ Body: { currentPassword?: string; newPassword?: string } }>("/api/v1/
 });
 
 
-app.patch<{ Body: { nickname?: string; standoff2Id?: string } }>("/api/v1/profile", async (request, reply) => {
+app.patch<{ Body: { nickname?: string; standoff2Id?: string; hours?: number } }>("/api/v1/profile", async (request, reply) => {
   if (!dbPool) return reply.code(503).send({ error: "База данных недоступна." });
   const user = await authenticatedUser(request);
   if (!user) return reply.code(401).send({ error: "Войди в аккаунт RATEIT." });
   const nickname = request.body?.nickname?.trim().replace(/\\s+/g, " ");
   const standoff2Id = request.body?.standoff2Id?.trim();
+  const hours = request.body?.hours;
+  if (hours !== undefined && (!Number.isInteger(hours) || hours < 0 || hours > 100000)) return reply.code(400).send({ error: "Укажи целое количество часов от 0 до 100000." });
   if (nickname !== undefined && (!nickname || nickname.length > 24 || /[\\u0000-\\u001f\\u007f]/.test(nickname))) {
     return reply.code(400).send({ error: "Ник должен содержать от 1 до 24 символов." });
   }
@@ -264,7 +266,8 @@ app.patch<{ Body: { nickname?: string; standoff2Id?: string } }>("/api/v1/profil
       "UPDATE users SET nickname=COALESCE($1,nickname), standoff2_id=COALESCE(standoff2_id,$2), updated_at=now() WHERE id=$3 RETURNING id,nickname,login_name,email,standoff2_id",
       [nickname ?? null, standoff2Id ?? null, user.id]
     );
-    return { user: updated.rows[0], standoff2IdLocked: Boolean(updated.rows[0].standoff2_id) };
+    if (hours !== undefined) await dbPool.query("UPDATE player_stats SET verified_hours=$1,updated_at=now() WHERE user_id=$2", [hours,user.id]);
+    return { user: { ...updated.rows[0], verified_hours: hours ?? user.verified_hours }, standoff2IdLocked: Boolean(updated.rows[0].standoff2_id) };
   } catch (error) {
     const pgError = error as { code?: string };
     if (pgError.code === "23505") return reply.code(409).send({ error: "Этот Standoff 2 ID уже используется другим аккаунтом RATEIT." });
