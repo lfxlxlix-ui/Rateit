@@ -417,7 +417,7 @@ app.get<{Params:{matchId:string}}>("/api/v1/matches/:matchId/maps",async(request
   const own=await dbPool.query("SELECT team FROM match_players WHERE match_id=$1 AND user_id=$2",[request.params.matchId,user.id]);
   if(!own.rowCount)return reply.code(403).send({error:"Ты не участвуешь в этом матче."});
   const bans=await dbPool.query("SELECT map_name,banned_by_user_id,ban_order FROM match_map_bans WHERE match_id=$1 ORDER BY ban_order",[request.params.matchId]);
-  const nextOrder=bans.rowCount+1;
+  const nextOrder=bans.rows.length+1;
   const nextTeam=nextOrder>6?null:(nextOrder%2===1?1:2);
   const captain=nextTeam===null?null:await dbPool.query("SELECT user_id FROM match_players WHERE match_id=$1 AND team=$2 ORDER BY elo_before DESC,user_id LIMIT 1",[request.params.matchId,nextTeam]);
   return {mapPool:RATEIT_MAP_POOL,bans:bans.rows,nextOrder,nextTeam,isMyTurn:nextTeam===own.rows[0].team&&captain?.rows[0]?.user_id===user.id,remainingMap:match.rows[0].map_name,status:match.rows[0].status};
@@ -437,7 +437,7 @@ app.post<{Params:{matchId:string};Body:{mapName?:string}}>("/api/v1/matches/:mat
     const own=await client.query("SELECT team FROM match_players WHERE match_id=$1 AND user_id=$2",[request.params.matchId,user.id]);
     if(!own.rowCount){await client.query("ROLLBACK");return reply.code(403).send({error:"Ты не участник этого матча."});}
     const bans=await client.query("SELECT map_name FROM match_map_bans WHERE match_id=$1 ORDER BY ban_order",[request.params.matchId]);
-    const nextOrder=bans.rowCount+1;
+    const nextOrder=bans.rows.length+1;
     if(nextOrder>6){await client.query("ROLLBACK");return reply.code(409).send({error:"Все шесть банов уже сделаны."});}
     if(bans.rows.some((ban:any)=>ban.map_name===mapName)){await client.query("ROLLBACK");return reply.code(409).send({error:"Эта карта уже забанена."});}
     const expectedTeam=nextOrder%2===1?1:2;
