@@ -17,7 +17,17 @@ const levels = [
   { level: 1, min: 100, max: 500 }
 ] as const;
 
-app.get("/health", async () => ({ status: "ok", service: "RATEIT API", version: "0.1.0" }));
+function parseNonNegativeNumber(value: unknown): number | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+app.get("/health", async () => ({
+  status: "ok",
+  service: "RATEIT API",
+  version: "0.1.0"
+}));
 
 app.get("/api/v1", async () => ({
   name: "RATEIT",
@@ -29,24 +39,77 @@ app.get("/api/v1/config", async () => ({
   startingElo: 751,
   maxHoursDifference: 50,
   levels,
-  note: "Challenger присваивается отдельно игрокам из топ-1000."
+  note: "Challenger — отдельный статус для игроков из топ-1000 рейтинговой таблицы."
 }));
 
 app.get<{ Querystring: { hours?: string } }>("/api/v1/hours/prefix", async (request, reply) => {
-  const hours = Number(request.query.hours);
-  if (request.query.hours === undefined || !Number.isFinite(hours) || hours < 0) {
-    return reply.code(400).send({ error: "Укажи корректное неотрицательное число в параметре hours." });
+  const hours = parseNonNegativeNumber(request.query.hours);
+  if (hours === null) {
+    return reply.code(400).send({
+      error: "Укажи корректное неотрицательное число в параметре hours."
+    });
   }
+
   return { hours, prefix: `${Math.floor(hours / 10) * 10}+` };
 });
 
 app.get<{ Querystring: { a?: string; b?: string } }>("/api/v1/matchmaking/hours-check", async (request, reply) => {
-  const a = Number(request.query.a);
-  const b = Number(request.query.b);
-  if (request.query.a === undefined || request.query.b === undefined || !Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) {
-    return reply.code(400).send({ error: "Укажи два корректных значения часов: a и b." });
+  const a = parseNonNegativeNumber(request.query.a);
+  const b = parseNonNegativeNumber(request.query.b);
+
+  if (a === null || b === null) {
+    return reply.code(400).send({
+      error: "Укажи два корректных неотрицательных значения часов: a и b."
+    });
   }
-  return { playerA: a, playerB: b, difference: Math.abs(a - b), compatible: Math.abs(a - b) <= 50, maxDifference: 50 };
+
+  const difference = Math.abs(a - b);
+  return {
+    playerA: a,
+    playerB: b,
+    difference,
+    compatible: difference <= 50,
+    maxDifference: 50
+  };
+});
+
+app.get<{ Querystring: { elo?: string } }>("/api/v1/elo/rank", async (request, reply) => {
+  const elo = parseNonNegativeNumber(request.query.elo);
+  if (elo === null || !Number.isInteger(elo)) {
+    return reply.code(400).send({
+      error: "Укажи целое неотрицательное значение ELO в параметре elo."
+    });
+  }
+
+  const currentIndex = levels.findIndex((item) => elo >= item.min && (item.max === null || elo <= item.max));
+  if (currentIndex === -1) {
+    return {
+      elo,
+      level: null,
+      rankName: "Без уровня",
+      nextLevel: 1,
+      nextElo: 100,
+      progressPercent: 0,
+      challenger: false
+    };
+  }
+
+  const current = levels[currentIndex];
+  const next = levels[currentIndex - 1];
+  const progressPercent = next
+    ? Math.max(0, Math.min(100, Math.floor(((elo - current.min) / (next.min - current.min)) * 100)))
+    : 100;
+
+  return {
+    elo,
+    level: current.level,
+    rankName: `Уровень ${current.level}`,
+    nextLevel: next?.level ?? null,
+    nextElo: next?.min ?? null,
+    progressPercent,
+    challenger: false,
+    note: "Статус Challenger определяется отдельно по месту в топ-1000."
+  };
 });
 
 const port = Number(process.env.PORT ?? 3000);
