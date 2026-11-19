@@ -288,7 +288,7 @@ app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegr
   try {
     await client.query("BEGIN");
     const result = await client.query(
-      "SELECT code_hash, telegram_user_id, expires_at, attempts, consumed_at FROM telegram_auth_challenges WHERE id = $1 FOR UPDATE",
+      "SELECT code_hash, telegram_user_id, expires_at, attempts, consumed_at, purpose, user_id FROM telegram_auth_challenges WHERE id = $1 FOR UPDATE",
       [challengeId]
     );
     const challenge = result.rows[0];
