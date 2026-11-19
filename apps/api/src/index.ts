@@ -323,3 +323,22 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
 
 const port = Number(process.env.PORT ?? 3000);
 await app.listen({ port, host: "0.0.0.0" });
+
+if (telegramToken && telegramWebhookSecret) {
+  try {
+    const webhookResponse = await fetch(`https://api.telegram.org/bot${telegramToken}/setWebhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        url: `https://rateit-api-6chg.onrender.com/api/v1/webhooks/telegram`,
+        secret_token: telegramWebhookSecret,
+        allowed_updates: ["message"]
+      })
+    });
+    const webhookResult = await webhookResponse.json() as { ok?: boolean; description?: string };
+    if (webhookResult.ok) app.log.info("Telegram webhook configured.");
+    else app.log.error({ description: webhookResult.description }, "Telegram webhook setup failed.");
+  } catch (error) {
+    app.log.error(error, "Telegram webhook setup request failed.");
+  }
+}
