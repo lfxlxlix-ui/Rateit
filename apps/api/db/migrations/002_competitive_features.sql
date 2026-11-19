@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS party_members (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role VARCHAR(12) NOT NULL DEFAULT 'member' CHECK (role IN ('leader', 'member')),
   joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (party_id, user_id),
-  UNIQUE (user_id)
+  left_at TIMESTAMPTZ,
+  PRIMARY KEY (party_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS match_ready_checks (
@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS match_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_party_members_user ON party_members(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_party_members_one_active_party
+  ON party_members(user_id) WHERE left_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_parties_status_created ON parties(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_ready_checks_match_status ON match_ready_checks(match_id, status);
 CREATE INDEX IF NOT EXISTS idx_map_bans_match_order ON match_map_bans(match_id, ban_order);
