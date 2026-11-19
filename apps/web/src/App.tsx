@@ -155,53 +155,111 @@ function Play() {
   </section>;
 }
 type Friend = { id:string; nickname:string; elo:number; status:"pending"|"accepted"; direction:"incoming"|"outgoing" };
+type PartyState = {id:string;leaderUserId:string;maxMembers:number;members:{id:string;nickname:string;elo:number;role:string}[]};
+type PartyInvite = {invite_id:string;party_id:string;inviter_nickname:string;max_members:number;member_count:number};
 function Friends() {
  const [friends,setFriends]=useState<Friend[]>([]);
  const [nickname,setNickname]=useState("");
  const [message,setMessage]=useState("");
- const [party,setParty]=useState<string[]>([]);
  const [loading,setLoading]=useState(true);
+ const [party,setParty]=useState<PartyState|null>(null);
+ const [partyInvites,setPartyInvites]=useState<PartyInvite[]>([]);
+ const [busy,setBusy]=useState(false);
  const apiBase="https://rateit-api-6chg.onrender.com";
  const token=()=>localStorage.getItem("rateit-session");
+ const authHeaders=()=>({authorization:`Bearer ${token()||""}`});
  const load=async()=>{
   const session=token();
-  if(!session){setLoading(false);setMessage("Войди в RATEIT, чтобы использовать настоящий список друзей.");return}
+  if(!session){setLoading(false);setMessage("Войди в RATEIT, чтобы использовать друзей и пати.");return}
   try{
-   const response=await fetch(`${apiBase}/api/v1/friends`,{headers:{authorization:`Bearer ${session}`}});
-   const data=await response.json();
-   if(!response.ok)throw new Error(data.error||"Не удалось загрузить друзей.");
-   setFriends(data.friends||[]);
-  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка загрузки друзей.")}
+   const [fr,pr]=await Promise.all([
+    fetch(`${apiBase}/api/v1/friends`,{headers:authHeaders()}),
+    fetch(`${apiBase}/api/v1/party`,{headers:authHeaders()})
+   ]);
+   const fd=await fr.json(),pd=await pr.json();
+   if(!fr.ok)throw new Error(fd.error||"Не удалось загрузить друзей.");
+   if(!pr.ok)throw new Error(pd.error||"Не удалось загрузить пати.");
+   setFriends(fd.friends||[]);setParty(pd.party||null);setPartyInvites(pd.invites||[]);
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка загрузки сообщества.")}
   finally{setLoading(false)}
  };
  useEffect(()=>{void load()},[]);
  const add=async()=>{
   if(!token()){setMessage("Сначала войди в аккаунт RATEIT.");return}
-  if(!nickname.trim()){setMessage("Введи точный игровой ник RATEIT.");return}
+  if(!nickname.trim()){setMessage("Введи точный ник RATEIT.");return}
+  setBusy(true);
   try{
-   const response=await fetch(`${apiBase}/api/v1/friends/request`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token()}`},body:JSON.stringify({nickname:nickname.trim()})});
+   const response=await fetch(`${apiBase}/api/v1/friends/request`,{method:"POST",headers:{"content-type":"application/json",...authHeaders()},body:JSON.stringify({nickname:nickname.trim()})});
    const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось отправить запрос.");
    setNickname("");setMessage(data.message||"Запрос отправлен.");await load();
   }catch(error){setMessage(error instanceof Error?error.message:"Ошибка отправки запроса.")}
+  finally{setBusy(false)}
  };
- const respond=async(userId:string,action:"accept"|"decline")=>{
+ const respondFriend=async(userId:string,action:"accept"|"decline")=>{
+  setBusy(true);
   try{
-   const response=await fetch(`${apiBase}/api/v1/friends/respond`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token()}`},body:JSON.stringify({userId,action})});
+   const response=await fetch(`${apiBase}/api/v1/friends/respond`,{method:"POST",headers:{"content-type":"application/json",...authHeaders()},body:JSON.stringify({userId,action})});
    const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось обработать запрос.");
    setMessage(action==="accept"?"Запрос принят. Вы теперь друзья.":"Запрос отклонён.");await load();
   }catch(error){setMessage(error instanceof Error?error.message:"Ошибка запроса.")}
+  finally{setBusy(false)}
  };
- const remove=async(friend:Friend)=>{
+ const removeFriend=async(friend:Friend)=>{
+  setBusy(true);
   try{
-   const response=await fetch(`${apiBase}/api/v1/friends/${friend.id}`,{method:"DELETE",headers:{authorization:`Bearer ${token()}`}});
+   const response=await fetch(`${apiBase}/api/v1/friends/${friend.id}`,{method:"DELETE",headers:authHeaders()});
    const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось удалить друга.");
-   setParty(items=>items.filter(name=>name!==friend.nickname));setMessage("Игрок удалён из списка друзей.");await load();
+   setMessage("Игрок удалён из списка друзей.");await load();
   }catch(error){setMessage(error instanceof Error?error.message:"Ошибка удаления.")}
+  finally{setBusy(false)}
+ };
+ const createParty=async(maxMembers:2|5)=>{
+  setBusy(true);
+  try{
+   const response=await fetch(`${apiBase}/api/v1/party/create`,{method:"POST",headers:{"content-type":"application/json",...authHeaders()},body:JSON.stringify({maxMembers})});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось создать пати.");
+   setMessage(`Пати ${maxMembers}×${maxMembers} создана. Теперь можно приглашать друзей.`);await load();
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка создания пати.")}
+  finally{setBusy(false)}
+ };
+ const inviteToParty=async(friend:Friend)=>{
+  if(!party)return;
+  setBusy(true);
+  try{
+   const response=await fetch(`${apiBase}/api/v1/party/invite`,{method:"POST",headers:{"content-type":"application/json",...authHeaders()},body:JSON.stringify({userId:friend.id})});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось пригласить игрока.");
+   setMessage(`Приглашение отправлено игроку ${friend.nickname}.`);
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка приглашения.")}
+  finally{setBusy(false)}
+ };
+ const respondParty=async(inviteId:string,action:"accept"|"decline")=>{
+  setBusy(true);
+  try{
+   const response=await fetch(`${apiBase}/api/v1/party/respond`,{method:"POST",headers:{"content-type":"application/json",...authHeaders()},body:JSON.stringify({inviteId,action})});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось обработать приглашение.");
+   setMessage(data.message|| (action==="accept"?"Ты вступил в пати.":"Приглашение отклонено."));await load();
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка приглашения.")}
+  finally{setBusy(false)}
+ };
+ const leaveParty=async()=>{
+  setBusy(true);
+  try{
+   const response=await fetch(`${apiBase}/api/v1/party/leave`,{method:"POST",headers:authHeaders()});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось выйти из пати.");
+   setMessage(data.message||"Ты вышел из пати.");await load();
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка выхода из пати.")}
+  finally{setBusy(false)}
  };
  const accepted=friends.filter(f=>f.status==="accepted");
  const incoming=friends.filter(f=>f.status==="pending"&&f.direction==="incoming");
  const outgoing=friends.filter(f=>f.status==="pending"&&f.direction==="outgoing");
- return <section className="page"><small>СООБЩЕСТВО</small><h1 className="page-title">ТВОИ <em>ДРУЗЬЯ</em></h1><article className="card friend-add"><h2>Добавить игрока</h2><p>Найди игрока по точному нику RATEIT и отправь запрос дружбы.</p><div className="friend-add-row"><input aria-label="Ник игрока" maxLength={24} value={nickname} onChange={e=>setNickname(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void add()}} placeholder="Ник игрока RATEIT"/><button className="primary" onClick={()=>void add()}>ОТПРАВИТЬ +</button></div>{message&&<p className="hint" role="status">{message}</p>}</article><article className="card party-panel"><div className="friend-list-title"><h2>Твоя пати</h2><span>{party.length+1} / 5 игроков</span></div><div className="party-slots"><div className="party-slot party-owner"><b>R</b><span>Ты · лидер</span></div>{Array.from({length:4},(_,i)=>{const name=party[i];return <div className={`party-slot ${name?"filled":""}`} key={i}>{name?<><b>{name.slice(0,1).toUpperCase()}</b><span>{name}</span></>:<><b>＋</b><span>Свободный слот</span></>}</div>})}</div><p className="hint">Состав пати пока локальный. Приглашения в пати — следующий этап.</p></article>{incoming.length>0&&<article className="card friend-list-card"><div className="friend-list-title"><h2>Входящие запросы</h2><span>{incoming.length}</span></div>{incoming.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · запрос дружбы</small></div><button className="primary invite-btn" onClick={()=>void respond(friend.id,"accept")}>ПРИНЯТЬ</button><button className="remove-friend" aria-label="Отклонить запрос" onClick={()=>void respond(friend.id,"decline")}>×</button></div>)}</article>}<article className="card friend-list-card"><div className="friend-list-title"><h2>Мои друзья</h2><span>{accepted.length}</span></div>{loading?<p className="hint">Загружаем список…</p>:accepted.length===0?<div className="empty"><div className="empty-icon">♧</div><p>Пока нет друзей. Найди игрока и отправь запрос.</p></div>:accepted.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · RATEIT</small></div><button className="secondary invite-btn" onClick={()=>{if(party.includes(friend.nickname)){setParty(items=>items.filter(name=>name!==friend.nickname))}else if(party.length>=4){setMessage("В пати максимум 4 друга и ты.")}else{setParty(items=>[...items,friend.nickname])}}}>{party.includes(friend.nickname)?"УБРАТЬ":"В ПАТИ"}</button><button className="remove-friend" aria-label={`Удалить ${friend.nickname}`} onClick={()=>void remove(friend)}>×</button></div>)}{outgoing.length>0&&<><div className="friend-list-title"><h2>Ожидают ответа</h2><span>{outgoing.length}</span></div>{outgoing.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · запрос отправлен</small></div></div>)}</>}</article></section>;
+ const isLeader=Boolean(party?.members.some(m=>m.role==="leader"&&m.id===party.leaderUserId));
+ return <section className="page"><small>СООБЩЕСТВО</small><h1 className="page-title">ТВОИ <em>ДРУЗЬЯ</em></h1><article className="card friend-add"><h2>Добавить игрока</h2><p>Найди игрока по точному нику RATEIT и отправь запрос дружбы.</p><div className="friend-add-row"><input aria-label="Ник игрока" maxLength={24} value={nickname} onChange={e=>setNickname(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void add()}} placeholder="Ник игрока RATEIT"/><button className="primary" disabled={busy} onClick={()=>void add()}>ОТПРАВИТЬ +</button></div>{message&&<p className="hint" role="status">{message}</p>}</article>
+ <article className="card party-panel"><div className="friend-list-title"><h2>Твоя пати</h2><span>{party?party.members.length+" / "+party.maxMembers+" игроков":"не создана"}</span></div>{party?<><div className="party-slots">{party.members.map(member=><div className={`party-slot filled ${member.role==="leader"?"party-owner":""}`} key={member.id}><b>{member.nickname.slice(0,1).toUpperCase()}</b><span>{member.nickname}{member.role==="leader"?" · лидер":""}</span></div>)}{Array.from({length:Math.max(0,party.maxMembers-party.members.length)},(_,i)=><div className="party-slot" key={i}><b>＋</b><span>Свободный слот</span></div>)}</div><p className="hint">{isLeader?"Ты лидер пати. Приглашай друзей из списка ниже.":"Ты участник пати. Управление приглашениями доступно лидеру."}</p><button className="secondary wide" disabled={busy} onClick={()=>void leaveParty()}>{isLeader?"ЗАКРЫТЬ ПАТИ":"ВЫЙТИ ИЗ ПАТИ"}</button></>:<><p>Создай группу, выбрав формат под режим игры.</p><div className="modes"><button disabled={busy} onClick={()=>void createParty(2)}>СОЗДАТЬ 2×2</button><button disabled={busy} onClick={()=>void createParty(5)}>СОЗДАТЬ 5×5</button></div></>}</article>
+ {partyInvites.length>0&&<article className="card friend-list-card"><div className="friend-list-title"><h2>Приглашения в пати</h2><span>{partyInvites.length}</span></div>{partyInvites.map(invite=><div className="friend-row" key={invite.invite_id}><div className="friend-avatar">＋</div><div className="friend-details"><b>{invite.inviter_nickname}</b><small>Пати · {invite.member_count}/{invite.max_members}</small></div><button className="primary invite-btn" disabled={busy} onClick={()=>void respondParty(invite.invite_id,"accept")}>ПРИНЯТЬ</button><button className="remove-friend" disabled={busy} aria-label="Отклонить приглашение" onClick={()=>void respondParty(invite.invite_id,"decline")}>×</button></div>)}</article>}
+ {incoming.length>0&&<article className="card friend-list-card"><div className="friend-list-title"><h2>Входящие запросы</h2><span>{incoming.length}</span></div>{incoming.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · запрос дружбы</small></div><button className="primary invite-btn" disabled={busy} onClick={()=>void respondFriend(friend.id,"accept")}>ПРИНЯТЬ</button><button className="remove-friend" disabled={busy} aria-label="Отклонить запрос" onClick={()=>void respondFriend(friend.id,"decline")}>×</button></div>)}</article>}
+ <article className="card friend-list-card"><div className="friend-list-title"><h2>Мои друзья</h2><span>{accepted.length}</span></div>{loading?<p className="hint">Загружаем список…</p>:accepted.length===0?<div className="empty"><div className="empty-icon">♧</div><p>Пока нет друзей. Найди игрока и отправь запрос.</p></div>:accepted.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · RATEIT</small></div><button className="secondary invite-btn" disabled={busy||!party||!isLeader} onClick={()=>void inviteToParty(friend)}>В ПАТИ</button><button className="remove-friend" disabled={busy} aria-label={`Удалить ${friend.nickname}`} onClick={()=>void removeFriend(friend)}>×</button></div>)}{outgoing.length>0&&<><div className="friend-list-title"><h2>Ожидают ответа</h2><span>{outgoing.length}</span></div>{outgoing.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · запрос отправлен</small></div></div>)}</>}</article>
+ </section>;
 }
 
 function History() {
