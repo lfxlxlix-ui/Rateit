@@ -350,6 +350,26 @@ app.get("/api/v1/matchmaking/queue/status",async(request,reply)=>{
   return {status:"idle"};
 });
 
+
+app.get<{Params:{matchId:string}}>("/api/v1/matches/:matchId",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const match=await dbPool.query("SELECT id,mode,status,created_at,map_name FROM matches WHERE id=$1",[request.params.matchId]);
+  if(!match.rowCount)return reply.code(404).send({error:"Матч не найден."});
+  const roster=await dbPool.query(
+    `SELECT mp.user_id,u.nickname,mp.team,mp.elo_before AS elo,rc.status AS ready_status
+     FROM match_players mp JOIN users u ON u.id=mp.user_id
+     LEFT JOIN match_ready_checks rc ON rc.match_id=mp.match_id AND rc.user_id=mp.user_id
+     WHERE mp.match_id=$1 ORDER BY mp.team,mp.elo_before DESC`,
+    [request.params.matchId]
+  );
+  const own=roster.rows.find((player:any)=>player.user_id===user.id);
+  if(!own)return reply.code(403).send({error:"Ты не участвуешь в этом матче."});
+  const pending=roster.rows.filter((player:any)=>player.ready_status==="pending").length;
+  return {match:match.rows[0],players:roster.rows,readyCount:roster.rows.length-pending,pendingCount:pending,myReadyStatus:own.ready_status};
+});
+
 app.post("/api/v1/matchmaking/queue/cancel",async(request,reply)=>{
   if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
   const user=await authenticatedUser(request);
