@@ -224,7 +224,7 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
   const text = message?.text ?? "";
   const chatId = message?.chat?.id;
   const telegramUserId = message?.from?.id;
-  const match = text.match(/^\\/start(?:@\\w+)?\\s+([A-Za-z0-9_-]{20,100})$/);
+  const match = text.match(/^\/start(?:@\w+)?\s+([A-Za-z0-9_-]{20,100})$/);
   if (!match || !chatId || !telegramUserId) return { ok: true };
   const startToken = match[1];
   const code = String(randomInt(100000, 1000000));
@@ -263,7 +263,7 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
       "🔐 <b>ТВОЙ КОД ВХОДА: " + code + "</b>",
       "",
       "Код одноразовый и действует 5 минут. Если ты не запрашивал вход, просто проигнорируй это сообщение."
-    ].join("\\n");
+    ].join("\n");
     try {
       await sendTelegramMessage(chatId, botMessage);
     } catch (error) {
