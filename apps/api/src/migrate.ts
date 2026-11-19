@@ -11,7 +11,8 @@ if (!dbPool) {
   const migrations = [
     { name: "001_initial_schema", path: resolve(here, "../db/schema.sql") },
     { name: "002_competitive_features", path: resolve(here, "../db/migrations/002_competitive_features.sql") },
-    { name: "003_telegram_auth", path: resolve(here, "../db/migrations/003_telegram_auth.sql") }
+    { name: "003_telegram_auth", path: resolve(here, "../db/migrations/003_telegram_auth.sql") },
+    { name: "004_accounts", path: resolve(here, "../db/migrations/004_accounts.sql") }
   ];
   const client = await dbPool.connect();
   try {
