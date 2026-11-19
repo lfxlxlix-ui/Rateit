@@ -84,7 +84,7 @@ function Play() {
       <h2>Тренировочный поиск с ботами</h2>
       <p>Запусти тестовую катку: боты найдутся автоматически, примут матч, а затем вы по очереди забаните карты. Никакие реальные игроки не подключаются.</p>
       <div className="modes">{(["5×5", "2×2"] as const).map((x) => <button key={x} className={mode === x ? "chosen" : ""} onClick={() => setMode(x)}>{x}</button>)}</div>
-      <div className="queue-info"><span>Режим</span><b>{mode}</b><span>Твой тестовый ELO</span><b>751</b><span>Состав</span><b>{mode === "5×5" ? "10 ботов и ты" : "2 бота и ты"}</b><span>Карты в пуле</span><b>7 · банов 6</b></div>
+      <div className="queue-info"><span>Режим</span><b>{mode}</b><span>Твой тестовый ELO</span><b>751</b><span>Состав</span><b>{mode === "5×5" ? "9 ботов и ты" : "3 бота и ты"}</b><span>Карты в пуле</span><b>7 · банов 6</b></div>
       <button className="primary wide" onClick={startSearch}>НАЧАТЬ ПОИСК С БОТАМИ ↗</button>
       <p className="hint">Это локальная симуляция интерфейса. Рейтинг и статистика аккаунта не меняются.</p>
     </article>}
