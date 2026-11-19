@@ -277,6 +277,103 @@ app.patch<{ Body: { nickname?: string; standoff2Id?: string } }>("/api/v1/profil
 
 
 
+
+app.post<{Body:{mode?:"2x2"|"5x5"}}>("/api/v1/matchmaking/queue/join",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const mode=request.body?.mode;
+  if(mode!=="2x2"&&mode!=="5x5")return reply.code(400).send({error:"Выбери режим 2×2 или 5×5."});
+  const profile=await dbPool.query("SELECT u.standoff2_id,ps.verified_hours,ps.elo FROM users u JOIN player_stats ps ON ps.user_id=u.id WHERE u.id=$1",[user.id]);
+  if(!profile.rowCount||!profile.rows[0].standoff2_id)return reply.code(409).send({error:"Сначала привяжи Standoff 2 ID в профиле. Он используется один раз и не меняется."});
+  if(profile.rows[0].verified_hours===null)return reply.code(409).send({error:"Укажи игровые часы в профиле — подбор учитывает разницу не более 50 часов."});
+  const activeParty=await dbPool.query("SELECT 1 FROM party_members WHERE user_id=$1 AND left_at IS NULL",[user.id]);
+  if(activeParty.rowCount)return reply.code(409).send({error:"Для первой версии очереди выйди из пати. Подбор группами добавим следующим этапом."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[`rateit_matchmaking_${mode}`]);
+    await client.query(
+      "INSERT INTO matchmaking_queue(user_id,mode,hours,elo) VALUES($1,$2,$3,$4) ON CONFLICT(user_id) DO UPDATE SET mode=EXCLUDED.mode,hours=EXCLUDED.hours,elo=EXCLUDED.elo,joined_at=now()",
+      [user.id,mode,profile.rows[0].verified_hours,profile.rows[0].elo]
+    );
+    const queued=await client.query("SELECT user_id,hours,elo,joined_at FROM matchmaking_queue WHERE mode=$1 ORDER BY joined_at FOR UPDATE",[mode]);
+    const needed=mode==="2x2"?4:10;
+    let selected:any[]=[];
+    for(const candidate of queued.rows){
+      const next=[...selected,candidate];
+      const hours=next.map((p:any)=>Number(p.hours));
+      if(hours.length===1||Math.max(...hours)-Math.min(...hours)<=50)selected=next;
+      if(selected.length===needed)break;
+    }
+    if(selected.length<needed){
+      await client.query("COMMIT");
+      return {status:"searching",mode,playersFound:selected.length,playersNeeded:needed, maxHoursDifference:50};
+    }
+    const sorted=[...selected].sort((a:any,b:any)=>Number(b.elo)-Number(a.elo));
+    const teamOne=needed===4?new Set([0,3]):new Set([0,3,4,7,8]);
+    const match=await client.query("INSERT INTO matches(mode,status) VALUES($1,'ready') RETURNING id",[mode]);
+    const matchId=match.rows[0].id as string;
+    for(let i=0;i<sorted.length;i++){
+      const player=sorted[i];
+      const team=teamOne.has(i)?1:2;
+      await client.query("INSERT INTO match_players(match_id,user_id,team,elo_before) VALUES($1,$2,$3,$4)",[matchId,player.user_id,team,player.elo]);
+      await client.query("INSERT INTO match_ready_checks(match_id,user_id,status) VALUES($1,$2,'pending')",[matchId,player.user_id]);
+      await client.query("DELETE FROM matchmaking_queue WHERE user_id=$1",[player.user_id]);
+    }
+    const players=await client.query("SELECT mp.user_id,mp.team,u.nickname,mp.elo_before AS elo FROM match_players mp JOIN users u ON u.id=mp.user_id WHERE mp.match_id=$1 ORDER BY mp.team,mp.elo_before DESC",[matchId]);
+    await client.query("COMMIT");
+    return {status:"found",matchId,mode,players,readySeconds:30};
+  }catch(error){
+    await client.query("ROLLBACK");request.log.error(error);return reply.code(500).send({error:"Не удалось выполнить подбор."});
+  }finally{client.release();}
+});
+
+app.get("/api/v1/matchmaking/queue/status",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const queued=await dbPool.query("SELECT mode,joined_at FROM matchmaking_queue WHERE user_id=$1",[user.id]);
+  if(queued.rowCount)return {status:"searching",mode:queued.rows[0].mode,joinedAt:queued.rows[0].joined_at};
+  const match=await dbPool.query(
+    `SELECT m.id,m.mode,m.status,rc.status AS ready_status,m.created_at
+     FROM match_players mp JOIN matches m ON m.id=mp.match_id
+     LEFT JOIN match_ready_checks rc ON rc.match_id=m.id AND rc.user_id=mp.user_id
+     WHERE mp.user_id=$1 AND m.status IN ('ready','in_progress')
+     ORDER BY m.created_at DESC LIMIT 1`,
+    [user.id]
+  );
+  if(match.rowCount)return {status:match.rows[0].status==="ready"?"found":"in_progress",match:match.rows[0]};
+  return {status:"idle"};
+});
+
+app.post("/api/v1/matchmaking/queue/cancel",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  await dbPool.query("DELETE FROM matchmaking_queue WHERE user_id=$1",[user.id]);
+  return {ok:true,status:"idle"};
+});
+
+app.post<{Params:{matchId:string}}>("/api/v1/matches/:matchId/ready",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const match=await client.query("SELECT id,status FROM matches WHERE id=$1 FOR UPDATE",[request.params.matchId]);
+    if(!match.rowCount||match.rows[0].status!=="ready"){await client.query("ROLLBACK");return reply.code(404).send({error:"Матч больше не ожидает подтверждения."});}
+    const own=await client.query("UPDATE match_ready_checks SET status='accepted',responded_at=now() WHERE match_id=$1 AND user_id=$2 AND status='pending' RETURNING user_id",[request.params.matchId,user.id]);
+    if(!own.rowCount){await client.query("ROLLBACK");return reply.code(409).send({error:"Ты уже подтвердил матч или не участвуешь в нём."});}
+    const pending=await client.query("SELECT count(*)::int AS total FROM match_ready_checks WHERE match_id=$1 AND status='pending'",[request.params.matchId]);
+    if(pending.rows[0].total===0)await client.query("UPDATE matches SET status='in_progress' WHERE id=$1",[request.params.matchId]);
+    await client.query("COMMIT");
+    return {ok:true,allReady:pending.rows[0].total===0};
+  }catch(error){await client.query("ROLLBACK");request.log.error(error);return reply.code(500).send({error:"Не удалось подтвердить матч."});}
+  finally{client.release();}
+});
+
 app.get("/api/v1/leaderboard",async()=>{
   if(!dbPool)return {players:[]};
   const result=await dbPool.query(
