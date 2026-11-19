@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import { checkDatabase, dbPool } from "./db.js";
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -28,6 +29,22 @@ app.get("/health", async () => ({
   service: "RATEIT API",
   version: "0.1.0"
 }));
+
+app.get("/ready", async (_request, reply) => {
+  try {
+    const database = await checkDatabase();
+    if (!database) {
+      return reply.code(503).send({ status: "not_ready", database: "not_configured" });
+    }
+    return { status: "ready", database: "connected" };
+  } catch {
+    return reply.code(503).send({ status: "not_ready", database: "unavailable" });
+  }
+});
+
+app.addHook("onClose", async () => {
+  await dbPool?.end();
+});
 
 app.get("/api/v1", async () => ({
   name: "RATEIT",
