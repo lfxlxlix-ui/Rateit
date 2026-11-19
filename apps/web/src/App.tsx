@@ -37,6 +37,63 @@ function Home({ go }: { go: (tab: Tab) => void }) {
  </>;
 }
 
+type QueueMatch={id:string;mode:string;status:string;created_at:string;map_name:string|null};
+type QueuePlayer={user_id:string;nickname:string;team:number;elo:number;ready_status:string};
+function RealQueue() {
+ const [mode,setMode]=useState<"5x5"|"2x2">("5x5");
+ const [status,setStatus]=useState<"idle"|"searching"|"found"|"in_progress">("idle");
+ const [playersFound,setPlayersFound]=useState(0);
+ const [playersNeeded,setPlayersNeeded]=useState(10);
+ const [match,setMatch]=useState<QueueMatch|null>(null);
+ const [players,setPlayers]=useState<QueuePlayer[]>([]);
+ const [myReadyStatus,setMyReadyStatus]=useState("pending");
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState("");
+ const apiBase="https://rateit-api-6chg.onrender.com";
+ const token=()=>localStorage.getItem("rateit-session");
+ const headers=()=>({authorization:`Bearer ${token()||""}`});
+ const refresh=async()=>{
+  const session=token();if(!session){setStatus("idle");return}
+  const response=await fetch(`${apiBase}/api/v1/matchmaking/queue/status`,{headers:headers()});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось проверить очередь.");
+  if(data.status==="searching"){
+   setStatus("searching");setMode(data.mode);setPlayersFound(data.playersFound||0);setPlayersNeeded(data.playersNeeded|| (data.mode==="2x2"?4:10));
+  }else if(data.status==="found"||data.status==="in_progress"){
+   setStatus(data.status);const id=data.match?.id;if(id){setMatch(data.match);const detail=await fetch(`${apiBase}/api/v1/matches/${id}`,{headers:headers()});const matchData=await detail.json();if(detail.ok){setPlayers(matchData.players||[]);setMyReadyStatus(matchData.myReadyStatus||"pending")}}
+  }else{setStatus("idle");setMatch(null);setPlayers([]);setPlayersFound(0)}
+ };
+ useEffect(()=>{void refresh().catch(error=>setMessage(error instanceof Error?error.message:"Ошибка очереди."))},[]);
+ useEffect(()=>{
+  if(status!=="searching"&&status!=="found"&&status!=="in_progress")return;
+  const timer=window.setInterval(()=>{void refresh().catch(error=>setMessage(error instanceof Error?error.message:"Ошибка обновления очереди."))},4000);
+  return()=>window.clearInterval(timer);
+ },[status,match?.id]);
+ const join=async()=>{
+  if(!token()){setMessage("Сначала войди в аккаунт RATEIT.");return}
+  setBusy(true);setMessage("");
+  try{
+   const response=await fetch(`${apiBase}/api/v1/matchmaking/queue/join`,{method:"POST",headers:{"content-type":"application/json",...headers()},body:JSON.stringify({mode})});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось начать поиск.");
+   if(data.status==="searching"){setStatus("searching");setPlayersFound(data.playersFound||0);setPlayersNeeded(data.playersNeeded|| (mode==="2x2"?4:10));setMessage("Ты добавлен в очередь. Ожидаем подходящих игроков.");}
+   else if(data.status==="found"){setStatus("found");setMatch({id:data.matchId,mode:data.mode,status:"ready",created_at:new Date().toISOString(),map_name:null});setPlayers(data.players||[]);setMyReadyStatus("pending");setMessage("Матч найден! Подтверди участие.");}
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка поиска.")}
+  finally{setBusy(false)}
+ };
+ const cancel=async()=>{
+  setBusy(true);
+  try{const response=await fetch(`${apiBase}/api/v1/matchmaking/queue/cancel`,{method:"POST",headers:headers()});const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось отменить поиск.");setStatus("idle");setMatch(null);setPlayers([]);setMessage("Поиск отменён.");}
+  catch(error){setMessage(error instanceof Error?error.message:"Ошибка отмены.")}
+  finally{setBusy(false)}
+ };
+ const ready=async()=>{
+  if(!match)return;setBusy(true);
+  try{const response=await fetch(`${apiBase}/api/v1/matches/${match.id}/ready`,{method:"POST",headers:headers()});const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось подтвердить участие.");setMyReadyStatus("accepted");setMessage(data.allReady?"Все игроки готовы. Матч перешёл в статус игры.":"Готово! Ожидаем подтверждения остальных игроков.");await refresh();}
+  catch(error){setMessage(error instanceof Error?error.message:"Ошибка подтверждения.")}
+  finally{setBusy(false)}
+ };
+ return <article className="card real-queue"><small>ОСНОВНОЙ РЕЖИМ · РЕАЛЬНЫЕ ИГРОКИ</small><h2>Рейтинговый матчмейкинг</h2><p>Подбор учитывает режим, ELO и разницу игровых часов не более 50. Для поиска нужен аккаунт, Standoff 2 ID и заполненные часы в профиле.</p>{status==="idle"&&<><div className="modes">{(["5x5","2x2"] as const).map(value=><button key={value} className={mode===value?"chosen":""} onClick={()=>setMode(value)}>{value==="5x5"?"5×5":"2×2"}</button>)}</div><button className="primary wide" disabled={busy} onClick={()=>void join()}>{busy?"ПОДКЛЮЧАЕМСЯ…":"НАЙТИ РЕАЛЬНЫЙ МАТЧ ↗"}</button></>}{status==="searching"&&<div className="queue-live"><div className="found-label">● ПОИСК ИДЁТ · {mode==="5x5"?"5×5":"2×2"}</div><h3>{playersFound} / {playersNeeded} игроков</h3><div className="bar"><i style={{width:`${Math.min(100,playersFound/playersNeeded*100)}%`}}/></div><p>Ищем игроков с подходящими игровыми часами (±50).</p><button className="secondary wide" disabled={busy} onClick={()=>void cancel()}>ОТМЕНИТЬ ПОИСК</button></div>}{(status==="found"||status==="in_progress")&&match&&<div className="queue-live"><div className="found-label">{status==="found"?"✓ МАТЧ НАЙДЕН":"МАТЧ ПОДТВЕРЖДЁН"}</div><h3>{match.mode==="5x5"?"Режим 5×5":"Режим 2×2"}</h3><div className="demo-teams"><div><small>КОМАНДА A</small>{players.filter(p=>p.team===1).map(p=><span key={p.user_id}>{p.nickname} · {p.elo} ELO</span>)}</div><div><small>КОМАНДА B</small>{players.filter(p=>p.team===2).map(p=><span key={p.user_id}>{p.nickname} · {p.elo} ELO</span>)}</div></div>{status==="found"&&<button className="primary wide" disabled={busy||myReadyStatus==="accepted"} onClick={()=>void ready()}>{myReadyStatus==="accepted"?"ТЫ ПОДТВЕРДИЛ УЧАСТИЕ":"ПОДТВЕРДИТЬ УЧАСТИЕ ✓"}</button>}{status==="in_progress"&&<p className="notice">Все игроки подтвердили участие. Следующий этап — выбор карты и лобби матча.</p>}<p className="hint">Готовы: {players.filter(p=>p.ready_status==="accepted").length} / {players.length}</p></div>}{message&&<p className="hint" role="status">{message}</p>}</article>;
+}
+
 function Play() {
   const [mode, setMode] = useState<"5×5" | "2×2">("5×5");
   const [stage, setStage] = useState<"setup" | "searching" | "found" | "banning" | "finished" | "lobby" | "result" | "completed">("setup");
@@ -107,7 +164,7 @@ function Play() {
 
   return <section className="page">
     <small>ДЕМО-МАТЧМЕЙКИНГ · БЕЗ РЕАЛЬНЫХ ИГРОКОВ</small>
-    <h1 className="page-title">НАЙДИ СВОЮ <em>ИГРУ</em></h1>
+    <h1 className="page-title">НАЙДИ СВОЮ <em>ИГРУ</em></h1>\n    <RealQueue/>
     {stage === "setup" && <article className="card">
       <h2>Тренировочный поиск с ботами</h2>
       <p>Запусти тестовую катку: боты найдутся автоматически, примут матч, а затем вы по очереди забаните карты. Никакие реальные игроки не подключаются.</p>
