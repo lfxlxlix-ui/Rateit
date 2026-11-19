@@ -237,6 +237,43 @@ app.post<{ Body: { currentPassword?: string; newPassword?: string } }>("/api/v1/
   return {ok:true,message:"Пароль изменён. Другие сессии завершены."};
 });
 
+
+app.patch<{ Body: { nickname?: string; standoff2Id?: string } }>("/api/v1/profile", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error: "База данных недоступна." });
+  const user = await authenticatedUser(request);
+  if (!user) return reply.code(401).send({ error: "Войди в аккаунт RATEIT." });
+  const nickname = request.body?.nickname?.trim().replace(/\\s+/g, " ");
+  const standoff2Id = request.body?.standoff2Id?.trim();
+  if (nickname !== undefined && (!nickname || nickname.length > 24 || /[\\u0000-\\u001f\\u007f]/.test(nickname))) {
+    return reply.code(400).send({ error: "Ник должен содержать от 1 до 24 символов." });
+  }
+  if (standoff2Id !== undefined && (!standoff2Id || standoff2Id.length > 64 || /[\\u0000-\\u001f\\u007f]/.test(standoff2Id))) {
+    return reply.code(400).send({ error: "Укажи корректный Standoff 2 ID." });
+  }
+  try {
+    const current = await dbPool.query("SELECT standoff2_id FROM users WHERE id=$1", [user.id]);
+    const currentId = current.rows[0]?.standoff2_id as string | null | undefined;
+    if (standoff2Id !== undefined && currentId && currentId !== standoff2Id) {
+      return reply.code(409).send({ error: "Standoff 2 ID нельзя изменить после привязки." });
+    }
+    if (standoff2Id !== undefined && !currentId) {
+      const duplicate = await dbPool.query("SELECT id FROM users WHERE standoff2_id=$1 AND id<>$2", [standoff2Id, user.id]);
+      if (duplicate.rowCount) return reply.code(409).send({ error: "Этот Standoff 2 ID уже используется другим аккаунтом RATEIT." });
+    }
+    const updated = await dbPool.query(
+      "UPDATE users SET nickname=COALESCE($1,nickname), standoff2_id=COALESCE(standoff2_id,$2), updated_at=now() WHERE id=$3 RETURNING id,nickname,login_name,email,standoff2_id",
+      [nickname ?? null, standoff2Id ?? null, user.id]
+    );
+    return { user: updated.rows[0], standoff2IdLocked: Boolean(updated.rows[0].standoff2_id) };
+  } catch (error) {
+    const pgError = error as { code?: string };
+    if (pgError.code === "23505") return reply.code(409).send({ error: "Этот Standoff 2 ID уже используется другим аккаунтом RATEIT." });
+    if (pgError.code === "23514") return reply.code(409).send({ error: "Standoff 2 ID нельзя изменить после привязки." });
+    request.log.error(error);
+    return reply.code(500).send({ error: "Не удалось сохранить профиль." });
+  }
+});
+
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramBotUsername = "Rateit_auth_bot";
 const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
