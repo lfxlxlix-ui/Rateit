@@ -199,6 +199,57 @@ function AuthPanel({ close }: { close: () => void }) {
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
+  const [telegramChallengeId, setTelegramChallengeId] = useState("");
+  const [telegramBotUrl, setTelegramBotUrl] = useState("");
+  const [telegramCode, setTelegramCode] = useState("");
+  const [telegramBusy, setTelegramBusy] = useState(false);
+  const [telegramVerified, setTelegramVerified] = useState(false);
+  const apiBase = "https://rateit-api-6chg.onrender.com";
+
+  const startTelegramLogin = async () => {
+    setTelegramBusy(true);
+    setNotice("");
+    setTelegramVerified(false);
+    try {
+      const response = await fetch(`${apiBase}/api/v1/auth/telegram/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ purpose: "login" })
+      });
+      const data = await response.json() as { challengeId?: string; botUrl?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "Не удалось начать вход через Telegram.");
+      setTelegramChallengeId(data.challengeId || "");
+      setTelegramBotUrl(data.botUrl || "");
+      setTelegramCode("");
+      setNotice("Открой бота по кнопке ниже и нажми Start. Он пришлёт одноразовый код.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Ошибка подключения к RATEIT API.");
+    } finally {
+      setTelegramBusy(false);
+    }
+  };
+
+  const verifyTelegramCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTelegramBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch(`${apiBase}/api/v1/auth/telegram/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challengeId: telegramChallengeId, code: telegramCode })
+      });
+      const data = await response.json() as { verified?: boolean; message?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "Код не принят.");
+      setTelegramVerified(Boolean(data.verified));
+      setNotice(data.message || "Telegram подтверждён.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Ошибка проверки кода.");
+    } finally {
+      setTelegramBusy(false);
+    }
+  };
+
   const title = mode === "register" ? "СОЗДАТЬ АККАУНТ" : mode === "recover" ? "ВОССТАНОВЛЕНИЕ" : "С ВОЗВРАЩЕНИЕМ";
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -222,10 +273,19 @@ function AuthPanel({ close }: { close: () => void }) {
       <h1 id="auth-title">{title}</h1>
       <p className="auth-subtitle">{mode === "register" ? "Создай профиль и собери все способы входа в одном месте." : mode === "recover" ? "Укажи почту, привязанную к аккаунту RATEIT." : "Войди удобным способом и продолжай свой путь."}</p>
       {mode !== "recover" && <div className="auth-providers">
-        {authProviders.map((provider) => <button type="button" key={provider.id} onClick={() => setNotice(`${provider.label}: подключение появится после настройки провайдера.`)}>
+        {authProviders.map((provider) => <button type="button" key={provider.id} disabled={telegramBusy} onClick={() => provider.id === "telegram" ? void startTelegramLogin() : setNotice(`${provider.label}: подключение появится после настройки провайдера.`)}>
           <b>{provider.mark}</b><span>{provider.label}</span><i>↗</i>
         </button>)}
       </div>}
+      {telegramBotUrl && mode !== "recover" && <section className="telegram-auth-box">
+        <p><b>1.</b> Открой бота и нажми Start.</p>
+        <a className="primary wide telegram-open" href={telegramBotUrl} target="_blank" rel="noreferrer">ОТКРЫТЬ TELEGRAM ↗</a>
+        <div className="telegram-warning"><b>⚠️ ВАЖНО — НЕ ПЕРЕДАВАЙ КОД</b><br/>Никому не сообщай код, даже людям, представляющимся администрацией RATEIT. Продажа, покупка, аренда и передача аккаунтов запрещены; за подтверждённые нарушения возможна блокировка, вплоть до перманентного бана.</div>
+        {!telegramVerified ? <form className="auth-form" onSubmit={verifyTelegramCode}>
+          <label>2. Шестизначный код из Telegram<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={telegramCode} onChange={e=>setTelegramCode(e.target.value.replace(/\\D/g,"").slice(0,6))} placeholder="000000" /></label>
+          <button className="primary wide" disabled={telegramBusy || telegramCode.length !== 6} type="submit">{telegramBusy ? "ПРОВЕРЯЕМ..." : "ПОДТВЕРДИТЬ КОД"}</button>
+        </form> : <p className="auth-notice">Telegram подтверждён. Создание полноценной сессии RATEIT будет доступно после подключения базы и системы аккаунтов.</p>}
+      </section>}
       {mode !== "recover" && <div className="auth-divider"><span>ИЛИ ПО ПАРОЛЮ</span></div>}
       <form onSubmit={submit} className="auth-form">
         {mode === "register" && <label>Игровой ник<input required maxLength={24} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Твой ник в RATEIT" /></label>}
