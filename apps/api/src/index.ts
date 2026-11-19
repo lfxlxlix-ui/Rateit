@@ -134,7 +134,7 @@ app.get<{ Querystring: { elo?: string } }>("/api/v1/elo/rank", async (request, r
 
 
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-const telegramBotUsername = process.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "");
+const telegramBotUsername = "Rateit_auth_bot";
 const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
