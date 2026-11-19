@@ -453,6 +453,11 @@ function AuthPanel({ close }: { close: () => void }) {
       const data = await response.json() as { verified?: boolean; token?: string; user?: unknown; message?: string; error?: string };
       if (!response.ok) throw new Error(data.error || "Код не принят.");
       setTelegramVerified(Boolean(data.verified));
+      if (data.verified && data.token) {
+        localStorage.setItem("rateit-session", data.token);
+        if (data.user) localStorage.setItem("rateit-user", JSON.stringify(data.user));
+        close();
+      }
       setNotice(data.message || "Telegram подтверждён.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Ошибка проверки кода.");
