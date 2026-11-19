@@ -274,6 +274,97 @@ app.patch<{ Body: { nickname?: string; standoff2Id?: string } }>("/api/v1/profil
   }
 });
 
+
+app.get("/api/v1/friends", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error: "База данных недоступна." });
+  const user = await authenticatedUser(request);
+  if (!user) return reply.code(401).send({ error: "Войди в RATEIT." });
+  const result = await dbPool.query(
+    `SELECT f.user_id AS relation_user_id, f.friend_id AS other_id, f.status,
+            u.id, u.nickname, COALESCE(ps.elo,751) AS elo,
+            CASE WHEN f.user_id=$1 THEN 'outgoing' ELSE 'incoming' END AS direction
+     FROM friendships f
+     JOIN users u ON u.id=CASE WHEN f.user_id=$1 THEN f.friend_id ELSE f.user_id END
+     LEFT JOIN player_stats ps ON ps.user_id=u.id
+     WHERE (f.user_id=$1 OR f.friend_id=$1) AND f.status IN ('pending','accepted')
+     ORDER BY CASE WHEN f.status='accepted' THEN 0 ELSE 1 END, lower(u.nickname)`,
+    [user.id]
+  );
+  return { friends: result.rows };
+});
+
+app.post<{ Body: { nickname?: string } }>("/api/v1/friends/request", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error: "База данных недоступна." });
+  const user = await authenticatedUser(request);
+  if (!user) return reply.code(401).send({ error: "Войди в RATEIT." });
+  const nickname = request.body?.nickname?.trim();
+  if (!nickname || nickname.length > 24) return reply.code(400).send({ error: "Укажи ник игрока." });
+  const target = await dbPool.query("SELECT id,nickname FROM users WHERE lower(nickname)=lower($1) AND id<>$2 LIMIT 1", [nickname,user.id]);
+  if (!target.rowCount) return reply.code(404).send({ error: "Игрок с таким ником не найден." });
+  const friendId = target.rows[0].id as string;
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query(
+      "SELECT user_id,friend_id,status FROM friendships WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1) FOR UPDATE",
+      [user.id,friendId]
+    );
+    if (existing.rows.some((row:any)=>row.status==="accepted")) {
+      await client.query("ROLLBACK");
+      return reply.code(409).send({ error: "Вы уже друзья." });
+    }
+    const reverse = existing.rows.find((row:any)=>row.user_id===friendId && row.friend_id===user.id && row.status==="pending");
+    if (reverse) {
+      await client.query("UPDATE friendships SET status='accepted' WHERE user_id=$1 AND friend_id=$2",[friendId,user.id]);
+      await client.query("INSERT INTO friendships(user_id,friend_id,status) VALUES($1,$2,'accepted') ON CONFLICT(user_id,friend_id) DO UPDATE SET status='accepted'",[user.id,friendId]);
+      await client.query("COMMIT");
+      return { status:"accepted", message:"Запрос принят. Теперь вы друзья." };
+    }
+    if (existing.rows.some((row:any)=>row.status==="pending")) {
+      await client.query("ROLLBACK");
+      return reply.code(409).send({ error: "Запрос дружбы уже отправлен или ожидает ответа." });
+    }
+    await client.query("INSERT INTO friendships(user_id,friend_id,status) VALUES($1,$2,'pending')",[user.id,friendId]);
+    await client.query("COMMIT");
+    return reply.code(201).send({ status:"pending", message:`Запрос игроку ${target.rows[0].nickname} отправлен.` });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    request.log.error(error);
+    return reply.code(500).send({ error:"Не удалось отправить запрос." });
+  } finally { client.release(); }
+});
+
+app.post<{ Body: { userId?: string; action?: "accept" | "decline" } }>("/api/v1/friends/respond", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({ error:"База данных недоступна." });
+  const user = await authenticatedUser(request);
+  if (!user) return reply.code(401).send({ error:"Войди в RATEIT." });
+  const { userId, action } = request.body ?? {};
+  if (!userId || !["accept","decline"].includes(action ?? "")) return reply.code(400).send({ error:"Некорректный запрос." });
+  if (action === "decline") {
+    const result=await dbPool.query("DELETE FROM friendships WHERE user_id=$1 AND friend_id=$2 AND status='pending'",[userId,user.id]);
+    if (!result.rowCount) return reply.code(404).send({error:"Входящий запрос не найден."});
+    return {ok:true};
+  }
+  const client=await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const result=await client.query("UPDATE friendships SET status='accepted' WHERE user_id=$1 AND friend_id=$2 AND status='pending' RETURNING user_id",[userId,user.id]);
+    if (!result.rowCount) { await client.query("ROLLBACK"); return reply.code(404).send({error:"Входящий запрос не найден."}); }
+    await client.query("INSERT INTO friendships(user_id,friend_id,status) VALUES($1,$2,'accepted') ON CONFLICT(user_id,friend_id) DO UPDATE SET status='accepted'",[user.id,userId]);
+    await client.query("COMMIT");
+    return {ok:true};
+  } catch(error) { await client.query("ROLLBACK"); request.log.error(error); return reply.code(500).send({error:"Не удалось принять запрос."}); }
+  finally { client.release(); }
+});
+
+app.delete<{ Params: { userId: string } }>("/api/v1/friends/:userId", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if (!user) return reply.code(401).send({error:"Войди в RATEIT."});
+  await dbPool.query("DELETE FROM friendships WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1)",[user.id,request.params.userId]);
+  return {ok:true};
+});
+
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramBotUsername = "Rateit_auth_bot";
 const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
