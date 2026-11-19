@@ -256,12 +256,14 @@ app.post<{ Body: { purpose?: "login" | "link" } }>("/api/v1/auth/telegram/start"
   if (!dbPool) return reply.code(503).send({ error: "Авторизация временно недоступна: база данных не подключена." });
   if (!telegramBotUsername) return reply.code(503).send({ error: "Не настроен TELEGRAM_BOT_USERNAME в Render." });
   const purpose = request.body?.purpose === "link" ? "link" : "login";
+  const linkedUser = purpose === "link" ? await authenticatedUser(request) : null;
+  if (purpose === "link" && !linkedUser) return reply.code(401).send({ error: "Сначала войди в RATEIT, чтобы привязать Telegram." });
   const challengeId = randomUUID();
   const startToken = randomBytes(32).toString("base64url");
   try {
     await dbPool.query(
-      "INSERT INTO telegram_auth_challenges (id, start_token_hash, expires_at) VALUES ($1, $2, now() + interval '10 minutes')",
-      [challengeId, sha256(startToken)]
+      "INSERT INTO telegram_auth_challenges (id, start_token_hash, expires_at, purpose, user_id) VALUES ($1, $2, now() + interval '10 minutes', $3, $4)",
+      [challengeId, sha256(startToken), purpose, linkedUser?.id ?? null]
     );
     return {
       challengeId,
@@ -300,12 +302,41 @@ app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegr
       return reply.code(400).send({ error: challenge.attempts + 1 >= 5 ? "Слишком много попыток. Запроси новый код." : "Неверный код." });
     }
     await client.query("UPDATE telegram_auth_challenges SET consumed_at = now() WHERE id = $1", [challengeId]);
+    const telegramId = String(challenge.telegram_user_id);
+    let userId: string;
+    if (challenge.purpose === "link") {
+      userId = challenge.user_id;
+      const occupied = await client.query("SELECT user_id FROM auth_identities WHERE provider='telegram' AND provider_user_id=$1", [telegramId]);
+      if (occupied.rowCount && occupied.rows[0].user_id !== userId) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Этот Telegram уже привязан к другому аккаунту RATEIT." });
+      }
+      await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'telegram',$2) ON CONFLICT (provider,provider_user_id) DO NOTHING", [userId, telegramId]);
+    } else {
+      const existing = await client.query("SELECT user_id FROM auth_identities WHERE provider='telegram' AND provider_user_id=$1", [telegramId]);
+      if (existing.rowCount) {
+        userId = existing.rows[0].user_id;
+      } else {
+        const suffix = telegramId.slice(-10);
+        const created = await client.query(
+          "INSERT INTO users(nickname,login_name) VALUES($1,$2) RETURNING id",
+          [`Игрок ${suffix.slice(-6)}`, `tg_${suffix}`]
+        );
+        userId = created.rows[0].id;
+        await client.query("INSERT INTO player_stats(user_id,elo,level) VALUES($1,751,3)", [userId]);
+        await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'telegram',$2)", [userId,telegramId]);
+      }
+    }
+    const token = randomBytes(32).toString("base64url");
+    await client.query("INSERT INTO auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')", [userId,sha256(token)]);
+    const profile = await client.query("SELECT id,nickname,login_name,email FROM users WHERE id=$1", [userId]);
     await client.query("COMMIT");
     return {
       verified: true,
-      telegramUserId: challenge.telegram_user_id,
-      nextStep: "telegram_identity_verified",
-      message: "Telegram подтверждён. Создание сессии RATEIT и привязка к профилю будут завершены после подключения системы аккаунтов."
+      token,
+      user: profile.rows[0],
+      nextStep: challenge.purpose === "link" ? "telegram_linked" : "signed_in",
+      message: challenge.purpose === "link" ? "Telegram успешно привязан к аккаунту RATEIT." : "Вход в RATEIT через Telegram выполнен."
     };
   } catch (error) {
     await client.query("ROLLBACK");
