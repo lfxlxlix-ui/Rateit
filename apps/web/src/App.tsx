@@ -29,10 +29,11 @@ function Home({ go }: { go: (tab: Tab) => void }) {
 
 function Play() {
   const [mode, setMode] = useState<"5×5" | "2×2">("5×5");
-  const [stage, setStage] = useState<"setup" | "searching" | "found" | "banning" | "finished">("setup");
+  const [stage, setStage] = useState<"setup" | "searching" | "found" | "banning" | "finished" | "lobby" | "result" | "completed">("setup");
   const [banned, setBanned] = useState<string[]>([]);
   const [botTurn, setBotTurn] = useState(false);
   const [readySeconds, setReadySeconds] = useState(30);
+  const [demoScore, setDemoScore] = useState({ teamA: 13, teamB: 8 });
   const maps = ["Sandstone", "Province", "Rust", "Zone 9", "Breeze", "Dune", "Sakura"];
   const remaining = maps.filter((map) => !banned.includes(map));
 
@@ -128,8 +129,27 @@ function Play() {
       <div className="final-map">{remaining[0] ?? "Карта не определена"}</div>
       <div className="queue-info"><span>Режим</span><b>{mode}</b><span>Забанено</span><b>{banned.length} карт</b><span>Участники</span><b>Ты и боты</b></div>
       <p className="notice">Демо завершено. Настоящая игровая комната в Standoff 2 не создавалась.</p>
-      <button className="primary wide" onClick={startSearch}>СЫГРАТЬ ЕЩЁ РАЗ ↗</button>
+      <button className="primary wide" onClick={()=>setStage("lobby")}>ПРОДОЛЖИТЬ В ЛОББИ ↗</button>
       <button className="secondary wide" onClick={cancel}>ВЕРНУТЬСЯ</button>
+    </article>}
+    {stage === "lobby" && <article className="card demo-stage">
+      <div className="found-label">ЛОББИ СОЗДАНО · ДЕМО</div><h2>Команды готовы</h2><p>Карта: <b>{remaining[0]}</b> · Режим {mode}. Это демонстрация лобби — настоящая комната в игре не создаётся.</p>
+      <div className="demo-teams"><div><small>КОМАНДА A</small><b>ТЫ · Игрок RATEIT</b>{Array.from({length:mode==="5×5"?4:1},(_,i)=><span key={i}>Бот союзник {i+1}</span>)}</div><div><small>КОМАНДА B</small>{Array.from({length:mode==="5×5"?5:2},(_,i)=><span key={i}>Бот соперник {i+1}</span>)}</div></div>
+      <p className="notice">В настоящей версии здесь появятся данные комнаты и инструкции для ручного входа в Standoff 2.</p>
+      <button className="primary wide" onClick={()=>setStage("result")}>ЗАВЕРШИТЬ ДЕМО-МАТЧ</button>
+      <button className="secondary wide" onClick={cancel}>ВЫЙТИ ИЗ ЛОББИ</button>
+    </article>}
+    {stage === "result" && <article className="card demo-stage">
+      <div className="found-label">РЕЗУЛЬТАТ МАТЧА · ДЕМО</div><h2>Введи счёт</h2><p>Проверь экран отправки результата. Эти данные никуда не отправляются.</p>
+      <div className="score-entry"><label>КОМАНДА A<input type="number" min="0" max="13" value={demoScore.teamA} onChange={e=>setDemoScore({...demoScore,teamA:Math.max(0,Math.min(13,Number(e.target.value)))})}/></label><b>:</b><label>КОМАНДА B<input type="number" min="0" max="13" value={demoScore.teamB} onChange={e=>setDemoScore({...demoScore,teamB:Math.max(0,Math.min(13,Number(e.target.value)))})}/></label></div>
+      <button className="primary wide" onClick={()=>setStage("completed")}>ПОДТВЕРДИТЬ РЕЗУЛЬТАТ</button>
+      <button className="secondary wide" onClick={()=>setStage("lobby")}>НАЗАД В ЛОББИ</button>
+    </article>}
+    {stage === "completed" && <article className="card demo-stage">
+      <div className="found-label">✓ ДЕМО ЗАВЕРШЕНО</div><h2>{demoScore.teamA===demoScore.teamB?"Ничья":demoScore.teamA>demoScore.teamB?"Победа команды A":"Победа команды B"}</h2>
+      <div className="final-map">{demoScore.teamA} : {demoScore.teamB}</div><p>Карта: {remaining[0]} · Режим {mode}</p>
+      <p className="notice">Результат показан только для проверки интерфейса. Матч не записан в историю, ELO не изменён.</p>
+      <button className="primary wide" onClick={startSearch}>СЫГРАТЬ ЕЩЁ РАЗ ↗</button><button className="secondary wide" onClick={cancel}>В ГЛАВНОЕ МЕНЮ ПОИСКА</button>
     </article>}
   </section>;
 }
