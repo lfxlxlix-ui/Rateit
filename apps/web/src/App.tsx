@@ -243,7 +243,7 @@ function AuthPanel({ close }: { close: () => void }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ challengeId: telegramChallengeId, code: telegramCode })
       });
-      const data = await response.json() as { verified?: boolean; message?: string; error?: string };
+      const data = await response.json() as { verified?: boolean; token?: string; user?: unknown; message?: string; error?: string };
       if (!response.ok) throw new Error(data.error || "Код не принят.");
       setTelegramVerified(Boolean(data.verified));
       setNotice(data.message || "Telegram подтверждён.");
