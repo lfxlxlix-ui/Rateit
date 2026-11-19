@@ -256,17 +256,35 @@ function AuthPanel({ close }: { close: () => void }) {
 
   const title = mode === "register" ? "СОЗДАТЬ АККАУНТ" : mode === "recover" ? "ВОССТАНОВЛЕНИЕ" : "С ВОЗВРАЩЕНИЕМ";
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (mode === "register" && password.length < 8) {
-      setNotice("Пароль должен содержать минимум 8 символов.");
-      return;
+    setTelegramBusy(true);
+    setNotice("");
+    try {
+      if (mode === "recover") {
+        setNotice("Восстановление пароля будет подключено после настройки подтверждения почты.");
+        return;
+      }
+      const endpoint = mode === "register" ? "/api/v1/auth/register" : "/api/v1/auth/login";
+      const body = mode === "register"
+        ? { nickname, loginName, email, password }
+        : { identifier, password };
+      const response = await fetch(`${apiBase}${endpoint}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await response.json() as { token?: string; user?: { nickname?: string }; error?: string };
+      if (!response.ok || !data.token) throw new Error(data.error || "Не удалось выполнить вход.");
+      localStorage.setItem("rateit-session", data.token);
+      if (data.user) localStorage.setItem("rateit-user", JSON.stringify(data.user));
+      setNotice(mode === "register" ? "Аккаунт RATEIT создан. Ты вошёл в систему." : "Вход выполнен.");
+      close();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Ошибка подключения к RATEIT API.");
+    } finally {
+      setTelegramBusy(false);
     }
-    if (!identifier.trim() && mode !== "register") {
-      setNotice("Введи логин или почту.");
-      return;
-    }
-    setNotice("Интерфейс готов. Реальная авторизация будет доступна после подключения серверной системы аккаунтов.");
   };
 
   return <div className="auth-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
@@ -305,7 +323,7 @@ function AuthPanel({ close }: { close: () => void }) {
         {mode === "register" && <button onClick={() => {setMode("login");setNotice("");}}>Уже есть аккаунт? Войти</button>}
         {mode === "recover" && <button onClick={() => {setMode("login");setNotice("");}}>Вернуться ко входу</button>}
       </div>
-      <p className="auth-footnote">Демо-интерфейс. Пароли и данные авторизации не сохраняются и никуда не отправляются.</p>
+      <p className="auth-footnote">Пароль передаётся только защищённому API RATEIT и хранится на сервере в виде криптографического хеша.</p>
     </section>
   </div>;
 }
