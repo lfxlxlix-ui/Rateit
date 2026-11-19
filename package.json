@@ -1,0 +1,1 @@
+{"name":"rateit","private":true,"version":"0.1.0","workspaces":["apps/*","packages/*"],"scripts":{"dev:web":"npm run dev --workspace @rateit/web","dev:api":"npm run dev --workspace @rateit/api","build":"npm run build --workspace @rateit/web && npm run build --workspace @rateit/api"}}
