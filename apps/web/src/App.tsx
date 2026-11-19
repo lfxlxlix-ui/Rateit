@@ -207,6 +207,7 @@ function AuthPanel({ close }: { close: () => void }) {
   const apiBase = "https://rateit-api-6chg.onrender.com";
 
   const startTelegramLogin = async () => {
+    const telegramWindow = window.open("about:blank", "_blank");
     setTelegramBusy(true);
     setNotice("");
     setTelegramVerified(false);
@@ -220,9 +221,12 @@ function AuthPanel({ close }: { close: () => void }) {
       if (!response.ok) throw new Error(data.error || "Не удалось начать вход через Telegram.");
       setTelegramChallengeId(data.challengeId || "");
       setTelegramBotUrl(data.botUrl || "");
+      if (data.botUrl && telegramWindow) telegramWindow.location.href = data.botUrl;
+      else telegramWindow?.close();
       setTelegramCode("");
       setNotice("Открой бота по кнопке ниже и нажми Start. Он пришлёт одноразовый код.");
     } catch (error) {
+      telegramWindow?.close();
       setNotice(error instanceof Error ? error.message : "Ошибка подключения к RATEIT API.");
     } finally {
       setTelegramBusy(false);
