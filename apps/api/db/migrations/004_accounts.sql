@@ -15,3 +15,6 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+
+ALTER TABLE telegram_auth_challenges ADD COLUMN IF NOT EXISTS purpose VARCHAR(12) NOT NULL DEFAULT 'login' CHECK (purpose IN ('login','link'));
+ALTER TABLE telegram_auth_challenges ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE;
