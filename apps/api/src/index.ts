@@ -380,6 +380,24 @@ app.get<{Params:{matchId:string}}>("/api/v1/matches/:matchId",async(request,repl
   return {match:match.rows[0],players:roster.rows,readyCount:roster.rows.length-pending,pendingCount:pending,myReadyStatus:own.ready_status};
 });
 
+
+app.post<{Params:{matchId:string}}>("/api/v1/matches/:matchId/decline",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const own=await client.query("UPDATE match_ready_checks SET status='declined',responded_at=now() WHERE match_id=$1 AND user_id=$2 AND status='pending' RETURNING user_id",[request.params.matchId,user.id]);
+    if(!own.rowCount){await client.query("ROLLBACK");return reply.code(404).send({error:"Нет ожидающего подтверждения для этого матча."});}
+    await client.query("UPDATE matches SET status='cancelled' WHERE id=$1 AND status='ready'",[request.params.matchId]);
+    await client.query("UPDATE match_ready_checks SET status='expired',responded_at=now() WHERE match_id=$1 AND status='pending'",[request.params.matchId]);
+    await client.query("COMMIT");
+    return {ok:true,message:"Ты отклонил матч. Можно вернуться в очередь позже."};
+  }catch(error){await client.query("ROLLBACK");request.log.error(error);return reply.code(500).send({error:"Не удалось отклонить матч."});}
+  finally{client.release();}
+});
+
 app.post("/api/v1/matchmaking/queue/cancel",async(request,reply)=>{
   if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
   const user=await authenticatedUser(request);
