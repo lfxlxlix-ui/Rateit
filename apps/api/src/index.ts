@@ -280,14 +280,14 @@ app.get("/api/v1/friends", async (request, reply) => {
   const user = await authenticatedUser(request);
   if (!user) return reply.code(401).send({ error: "Войди в RATEIT." });
   const result = await dbPool.query(
-    `SELECT f.user_id AS relation_user_id, f.friend_id AS other_id, f.status,
+    `SELECT DISTINCT ON (u.id) f.user_id AS relation_user_id, f.friend_id AS other_id, f.status,
             u.id, u.nickname, COALESCE(ps.elo,751) AS elo,
             CASE WHEN f.user_id=$1 THEN 'outgoing' ELSE 'incoming' END AS direction
      FROM friendships f
      JOIN users u ON u.id=CASE WHEN f.user_id=$1 THEN f.friend_id ELSE f.user_id END
      LEFT JOIN player_stats ps ON ps.user_id=u.id
      WHERE (f.user_id=$1 OR f.friend_id=$1) AND f.status IN ('pending','accepted')
-     ORDER BY CASE WHEN f.status='accepted' THEN 0 ELSE 1 END, lower(u.nickname)`,
+     ORDER BY u.id, CASE WHEN f.status='accepted' THEN 0 ELSE 1 END, lower(u.nickname)`,
     [user.id]
   );
   return { friends: result.rows };
