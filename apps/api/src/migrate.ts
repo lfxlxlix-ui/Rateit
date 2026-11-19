@@ -10,7 +10,8 @@ if (!dbPool) {
   const here = dirname(fileURLToPath(import.meta.url));
   const migrations = [
     { name: "001_initial_schema", path: resolve(here, "../db/schema.sql") },
-    { name: "002_competitive_features", path: resolve(here, "../db/migrations/002_competitive_features.sql") }
+    { name: "002_competitive_features", path: resolve(here, "../db/migrations/002_competitive_features.sql") },
+    { name: "003_telegram_auth", path: resolve(here, "../db/migrations/003_telegram_auth.sql") }
   ];
   const client = await dbPool.connect();
   try {
@@ -18,25 +19,17 @@ if (!dbPool) {
     await client.query(
       "CREATE TABLE IF NOT EXISTS rateit_schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
     );
-
     for (const migration of migrations) {
-      const existing = await client.query(
-        "SELECT 1 FROM rateit_schema_migrations WHERE name = $1",
-        [migration.name]
-      );
+      const existing = await client.query("SELECT 1 FROM rateit_schema_migrations WHERE name = $1", [migration.name]);
       if (existing.rowCount) {
         console.log(`Пропуск ${migration.name}: уже применена.`);
         continue;
       }
-
       const sql = await readFile(migration.path, "utf8");
       await client.query("BEGIN");
       try {
         await client.query(sql);
-        await client.query(
-          "INSERT INTO rateit_schema_migrations(name) VALUES ($1)",
-          [migration.name]
-        );
+        await client.query("INSERT INTO rateit_schema_migrations(name) VALUES ($1)", [migration.name]);
         await client.query("COMMIT");
         console.log(`Применена ${migration.name}.`);
       } catch (error) {
