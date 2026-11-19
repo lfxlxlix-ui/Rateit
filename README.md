@@ -99,7 +99,7 @@ Telegram-бот сам по себе не управляет Standoff 2. Пол�
 
 - `apps/web` — React, TypeScript и Vite; веб-интерфейс и основа будущего Telegram Mini App.
 - `apps/api` — сервер API на Fastify.
-- `packages/shared` — общие константы и правила RATEIT.
+- `packages/shared` — общие константы и правила RATEIT. API использует эти же функции и константы для расчёта часов, проверки совместимости и выдачи конфигурации, чтобы правила не расходились между клиентом и сервером.
 - `apps/api/db/schema.sql` — начальная SQL-схема PostgreSQL.
 - `apps/api/db/migrations/002_competitive_features.sql` — расширение схемы для пати, подтверждения готовности, банов карт, результатов, сезонов и жалоб.
 - `apps/api/.env.example` — пример переменных окружения без секретов.
