@@ -170,15 +170,40 @@ function History() {
  return <section className="page"><small>ТВОИ РЕЗУЛЬТАТЫ</small><h1 className="page-title">ИСТОРИЯ <em>МАТЧЕЙ</em></h1><article className="card"><div className="history-summary"><div><strong>3</strong><span>матча · демо</span></div><div><strong>2</strong><span>победы</span></div><div><strong>67%</strong><span>винрейт</span></div></div><div className="history-filters">{(["Все","Победы","Поражения"] as const).map(item=><button key={item} className={filter===item?"chosen":""} onClick={()=>setFilter(item)}>{item}</button>)}</div>{visible.map((m,i)=><div className="match-row" key={i}><div><b>{m.map}</b><small>{m.mode} · {m.date}</small></div><span className={m.result==="Победа"?"win":"loss"}>{m.result}</span><b>{m.score}</b><strong className={m.result==="Победа"?"win":"loss"}>{m.elo}</strong></div>)}{visible.length===0&&<p className="hint">В этой категории пока нет матчей.</p>}<p className="hint">Пока это примеры для проверки интерфейса, а не реальные результаты аккаунта.</p></article></section>;
 }
 
-type PlayerProfile={nickname:string;playerId:string;hours:string};
-const emptyProfile:PlayerProfile={nickname:"Игрок RATEIT",playerId:"",hours:""};
+type PlayerProfile={nickname:string;playerId:string;hours:string;elo:number;level:number};
+const emptyProfile:PlayerProfile={nickname:"Игрок RATEIT",playerId:"",hours:"",elo:751,level:3};
 function Profile() {
- const [profile,setProfile]=useState<PlayerProfile>(()=>{try{const s=localStorage.getItem("rateit-demo-profile");return s?{...emptyProfile,...JSON.parse(s) as Partial<PlayerProfile>}:emptyProfile}catch{return emptyProfile}});
- const [editing,setEditing]=useState(false);const [draft,setDraft]=useState(profile);const [message,setMessage]=useState("");
- useEffect(()=>{localStorage.setItem("rateit-demo-profile",JSON.stringify(profile))},[profile]);
- const save=()=>{const hours=draft.hours.trim();if(hours&&(!/^\d+$/.test(hours)||Number(hours)>100000)){setMessage("Укажи корректное количество часов.");return}setProfile({nickname:draft.nickname.trim().slice(0,24)||"Игрок RATEIT",playerId:draft.playerId.trim().slice(0,64),hours});setEditing(false);setMessage("Данные сохранены в этом браузере.")};
+ const [profile,setProfile]=useState<PlayerProfile>(emptyProfile);
+ const [draft,setDraft]=useState(profile);
+ const [editing,setEditing]=useState(false);
+ const [message,setMessage]=useState("");
+ const [authenticated,setAuthenticated]=useState(false);
+ const [loading,setLoading]=useState(true);
+ const apiBase="https://rateit-api-6chg.onrender.com";
+ useEffect(()=>{
+  const token=localStorage.getItem("rateit-session");
+  if(!token){setLoading(false);return}
+  fetch(`${apiBase}/api/v1/auth/me`,{headers:{authorization:`Bearer ${token}`}})
+   .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось загрузить профиль.");const u=data.user;const next={nickname:u.nickname||"Игрок RATEIT",playerId:u.standoff2_id||"",hours:u.verified_hours==null?"":String(u.verified_hours),elo:u.elo??751,level:u.level??3};setProfile(next);setDraft(next);setAuthenticated(true)})
+   .catch(error=>setMessage(error instanceof Error?error.message:"Ошибка загрузки профиля."))
+   .finally(()=>setLoading(false));
+ },[]);
+ const save=async()=>{
+  if(!authenticated){setMessage("Войди в RATEIT, чтобы сохранять профиль.");return}
+  const nickname=draft.nickname.trim();
+  if(!nickname||nickname.length>24){setMessage("Ник должен содержать от 1 до 24 символов.");return}
+  const token=localStorage.getItem("rateit-session");
+  try{
+   const response=await fetch(`${apiBase}/api/v1/profile`,{method:"PATCH",headers:{"content-type":"application/json",authorization:`Bearer ${token||""}`},body:JSON.stringify({nickname,...(!profile.playerId&&draft.playerId.trim()?{standoff2Id:draft.playerId.trim()}: {})})});
+   const data=await response.json();
+   if(!response.ok)throw new Error(data.error||"Не удалось сохранить профиль.");
+   const next={...profile,nickname:data.user.nickname,playerId:data.user.standoff2_id||""};
+   setProfile(next);setDraft(next);setEditing(false);
+   setMessage(next.playerId?"Профиль сохранён. Standoff 2 ID закреплён за аккаунтом и больше не изменяется.":"Ник сохранён. Standoff 2 ID можно привязать один раз.");
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка сохранения профиля.")}
+ };
  const shownHours=profile.hours?`${Math.floor(Number(profile.hours)/10)*10}+`:"не подтверждены";
- return <section className="page"><small>АККАУНТ И СТАТИСТИКА</small><h1 className="page-title">ТВОЙ <em>ПРОФИЛЬ</em></h1><article className="card profile-card"><div className="profile-head"><div className="profile-avatar">{profile.nickname.slice(0,1).toUpperCase()}</div><div><h2>{profile.nickname}</h2><p>Standoff 2 ID: {profile.playerId||"не указан"}</p><p>Игровые часы: {shownHours}</p></div><b className="level-badge">3</b></div>{editing?<div className="profile-editor"><label>Игровой ник<input maxLength={24} value={draft.nickname} onChange={e=>setDraft({...draft,nickname:e.target.value})}/></label><label>Standoff 2 ID<input maxLength={64} value={draft.playerId} onChange={e=>setDraft({...draft,playerId:e.target.value})} placeholder="Введи свой ID"/></label><label>Игровые часы<input inputMode="numeric" value={draft.hours} onChange={e=>setDraft({...draft,hours:e.target.value})} placeholder="Например, 187"/></label><div className="editor-actions"><button className="primary" onClick={save}>СОХРАНИТЬ</button><button className="secondary" onClick={()=>{setDraft(profile);setEditing(false);setMessage("")}}>ОТМЕНА</button></div></div>:<button className="secondary edit-profile" onClick={()=>{setDraft(profile);setEditing(true)}}>РЕДАКТИРОВАТЬ ПРОФИЛЬ ✎</button>}{message&&<p className="hint" role="status">{message}</p>}<div className="elo">751 <span>ELO · УРОВЕНЬ 3</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{width:"0%"}}/></div><p className="between">Следующий уровень <b>149 ELO · 900</b></p><div className="stats-grid"><div><b>—</b><span>K/D</span></div><div><b>—</b><span>Победы</span></div><div><b>—</b><span>Матчи</span></div><div><b>—</b><span>Винрейт</span></div></div><p className="notice">Это демо-профиль. Данные сохраняются в этом браузере, но пока не отправляются на сервер и не проверяются по Standoff 2.</p></article></section>;
+ return <section className="page"><small>АККАУНТ И СТАТИСТИКА</small><h1 className="page-title">ТВОЙ <em>ПРОФИЛЬ</em></h1><article className="card profile-card"><div className="profile-head"><div className="profile-avatar">{profile.nickname.slice(0,1).toUpperCase()}</div><div><h2>{profile.nickname}</h2><p>Standoff 2 ID: {profile.playerId||"не привязан"}</p><p>Игровые часы: {shownHours}</p></div><b className="level-badge">{profile.level}</b></div>{editing?<div className="profile-editor"><label>Игровой ник<input maxLength={24} value={draft.nickname} onChange={e=>setDraft({...draft,nickname:e.target.value})}/></label><label>Standoff 2 ID<input maxLength={64} value={draft.playerId} disabled={Boolean(profile.playerId)} onChange={e=>setDraft({...draft,playerId:e.target.value})} placeholder={profile.playerId?"ID уже закреплён":"Введи свой ID один раз"}/></label>{profile.playerId&&<p className="hint">Этот ID уже использован для аккаунта и не может быть изменён или перенесён.</p>}<div className="editor-actions"><button className="primary" onClick={()=>void save()}>СОХРАНИТЬ</button><button className="secondary" onClick={()=>{setDraft(profile);setEditing(false);setMessage("")}}>ОТМЕНА</button></div></div>:<button className="secondary edit-profile" disabled={!authenticated||loading} onClick={()=>{setDraft(profile);setEditing(true)}}>{authenticated?"РЕДАКТИРОВАТЬ ПРОФИЛЬ ✎":"ВОЙДИ, ЧТОБЫ ИЗМЕНИТЬ ПРОФИЛЬ"}</button>}{message&&<p className="hint" role="status">{message}</p>}{loading&&<p className="hint">Загружаем профиль…</p>}<div className="elo">{profile.elo} <span>ELO · УРОВЕНЬ {profile.level}</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{width:"0%"}}/></div><p className="between">Профиль RATEIT · единый для сайта и Telegram</p><div className="stats-grid"><div><b>—</b><span>K/D</span></div><div><b>—</b><span>Победы</span></div><div><b>—</b><span>Матчи</span></div><div><b>—</b><span>Винрейт</span></div></div><p className="notice">Standoff 2 ID закрепляется за аккаунтом один раз. Один игровой ID нельзя использовать в нескольких аккаунтах RATEIT.</p></article></section>;
 }
 
 
