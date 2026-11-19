@@ -154,14 +154,54 @@ function Play() {
     </article>}
   </section>;
 }
-type Friend = { nickname: string; elo: number; status: "В сети" | "Не в сети" };
-const defaultFriends: Friend[] = [{nickname:"Shadow",elo:1240,status:"В сети"},{nickname:"K1ller",elo:980,status:"Не в сети"},{nickname:"Nexus",elo:1560,status:"В сети"}];
+type Friend = { id:string; nickname:string; elo:number; status:"pending"|"accepted"; direction:"incoming"|"outgoing" };
 function Friends() {
- const [friends,setFriends]=useState<Friend[]>(()=>{try{const s=localStorage.getItem("rateit-demo-friends");return s?JSON.parse(s) as Friend[]:defaultFriends}catch{return defaultFriends}});
- const [nickname,setNickname]=useState("");const [message,setMessage]=useState("");const [party,setParty]=useState<string[]>([]);
- useEffect(()=>{localStorage.setItem("rateit-demo-friends",JSON.stringify(friends))},[friends]);
- const add=()=>{const name=nickname.trim().replace(/\s+/g," ").slice(0,24);if(!name){setMessage("Введи ник игрока.");return}if(friends.some(x=>x.nickname.toLowerCase()===name.toLowerCase())){setMessage("Такой игрок уже есть в списке.");return}setFriends(x=>[...x,{nickname:name,elo:751,status:"Не в сети"}]);setNickname("");setMessage("Игрок добавлен в демо-список друзей.")};
- return <section className="page"><small>СООБЩЕСТВО</small><h1 className="page-title">ТВОИ <em>ДРУЗЬЯ</em></h1><article className="card friend-add"><h2>Добавить игрока</h2><p>Введи ник, чтобы проверить интерфейс списка друзей.</p><div className="friend-add-row"><input aria-label="Ник игрока" maxLength={24} value={nickname} onChange={e=>setNickname(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")add()}} placeholder="Например, Player123"/><button className="primary" onClick={add}>ДОБАВИТЬ +</button></div>{message&&<p className="hint" role="status">{message}</p>}</article><article className="card party-panel"><div className="friend-list-title"><h2>Твоя пати</h2><span>{party.length+1} / 5 игроков</span></div><div className="party-slots"><div className="party-slot party-owner"><b>R</b><span>Ты · лидер</span></div>{Array.from({length:4},(_,i)=>{const name=party[i];return <div className={`party-slot ${name?"filled":""}`} key={i}>{name?<><b>{name.slice(0,1).toUpperCase()}</b><span>{name}</span></>:<><b>＋</b><span>Свободный слот</span></>}</div>})}</div><p className="hint">Добавляй друзей в пати кнопкой рядом с их ником. Это локальная демонстрация — приглашения не отправляются.</p></article><article className="card friend-list-card"><div className="friend-list-title"><h2>Мой список</h2><span>{friends.length} игроков</span></div>{friends.length===0?<div className="empty"><div className="empty-icon">♧</div><p>Пока никого нет. Добавь первого друга выше.</p></div>:friends.map(friend=><div className="friend-row" key={friend.nickname}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.status} · {friend.elo} ELO</small></div><button className="secondary invite-btn" onClick={()=>{if(party.includes(friend.nickname)){setParty(items=>items.filter(name=>name!==friend.nickname));setMessage(`${friend.nickname} удалён из демо-пати.`)}else if(party.length>=4){setMessage("В пати максимум 4 друга и ты.")}else{setParty(items=>[...items,friend.nickname]);setMessage(`${friend.nickname} добавлен в демо-пати.`)}}}>{party.includes(friend.nickname)?"УБРАТЬ":"В ПАТИ"}</button><button className="remove-friend" aria-label={`Удалить ${friend.nickname}`} onClick={()=>{setFriends(items=>items.filter(x=>x.nickname!==friend.nickname));setParty(items=>items.filter(name=>name!==friend.nickname))}}>×</button></div>)}<p className="hint">Список хранится только в этом браузере. Приглашения пока не отправляются другим игрокам.</p></article></section>;
+ const [friends,setFriends]=useState<Friend[]>([]);
+ const [nickname,setNickname]=useState("");
+ const [message,setMessage]=useState("");
+ const [party,setParty]=useState<string[]>([]);
+ const [loading,setLoading]=useState(true);
+ const apiBase="https://rateit-api-6chg.onrender.com";
+ const token=()=>localStorage.getItem("rateit-session");
+ const load=async()=>{
+  const session=token();
+  if(!session){setLoading(false);setMessage("Войди в RATEIT, чтобы использовать настоящий список друзей.");return}
+  try{
+   const response=await fetch(`${apiBase}/api/v1/friends`,{headers:{authorization:`Bearer ${session}`}});
+   const data=await response.json();
+   if(!response.ok)throw new Error(data.error||"Не удалось загрузить друзей.");
+   setFriends(data.friends||[]);
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка загрузки друзей.")}
+  finally{setLoading(false)}
+ };
+ useEffect(()=>{void load()},[]);
+ const add=async()=>{
+  if(!token()){setMessage("Сначала войди в аккаунт RATEIT.");return}
+  if(!nickname.trim()){setMessage("Введи точный игровой ник RATEIT.");return}
+  try{
+   const response=await fetch(`${apiBase}/api/v1/friends/request`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token()}`},body:JSON.stringify({nickname:nickname.trim()})});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось отправить запрос.");
+   setNickname("");setMessage(data.message||"Запрос отправлен.");await load();
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка отправки запроса.")}
+ };
+ const respond=async(userId:string,action:"accept"|"decline")=>{
+  try{
+   const response=await fetch(`${apiBase}/api/v1/friends/respond`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token()}`},body:JSON.stringify({userId,action})});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось обработать запрос.");
+   setMessage(action==="accept"?"Запрос принят. Вы теперь друзья.":"Запрос отклонён.");await load();
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка запроса.")}
+ };
+ const remove=async(friend:Friend)=>{
+  try{
+   const response=await fetch(`${apiBase}/api/v1/friends/${friend.id}`,{method:"DELETE",headers:{authorization:`Bearer ${token()}`}});
+   const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось удалить друга.");
+   setParty(items=>items.filter(name=>name!==friend.nickname));setMessage("Игрок удалён из списка друзей.");await load();
+  }catch(error){setMessage(error instanceof Error?error.message:"Ошибка удаления.")}
+ };
+ const accepted=friends.filter(f=>f.status==="accepted");
+ const incoming=friends.filter(f=>f.status==="pending"&&f.direction==="incoming");
+ const outgoing=friends.filter(f=>f.status==="pending"&&f.direction==="outgoing");
+ return <section className="page"><small>СООБЩЕСТВО</small><h1 className="page-title">ТВОИ <em>ДРУЗЬЯ</em></h1><article className="card friend-add"><h2>Добавить игрока</h2><p>Найди игрока по точному нику RATEIT и отправь запрос дружбы.</p><div className="friend-add-row"><input aria-label="Ник игрока" maxLength={24} value={nickname} onChange={e=>setNickname(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")void add()}} placeholder="Ник игрока RATEIT"/><button className="primary" onClick={()=>void add()}>ОТПРАВИТЬ +</button></div>{message&&<p className="hint" role="status">{message}</p>}</article><article className="card party-panel"><div className="friend-list-title"><h2>Твоя пати</h2><span>{party.length+1} / 5 игроков</span></div><div className="party-slots"><div className="party-slot party-owner"><b>R</b><span>Ты · лидер</span></div>{Array.from({length:4},(_,i)=>{const name=party[i];return <div className={`party-slot ${name?"filled":""}`} key={i}>{name?<><b>{name.slice(0,1).toUpperCase()}</b><span>{name}</span></>:<><b>＋</b><span>Свободный слот</span></>}</div>})}</div><p className="hint">Состав пати пока локальный. Приглашения в пати — следующий этап.</p></article>{incoming.length>0&&<article className="card friend-list-card"><div className="friend-list-title"><h2>Входящие запросы</h2><span>{incoming.length}</span></div>{incoming.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · запрос дружбы</small></div><button className="primary invite-btn" onClick={()=>void respond(friend.id,"accept")}>ПРИНЯТЬ</button><button className="remove-friend" aria-label="Отклонить запрос" onClick={()=>void respond(friend.id,"decline")}>×</button></div>)}</article>}<article className="card friend-list-card"><div className="friend-list-title"><h2>Мои друзья</h2><span>{accepted.length}</span></div>{loading?<p className="hint">Загружаем список…</p>:accepted.length===0?<div className="empty"><div className="empty-icon">♧</div><p>Пока нет друзей. Найди игрока и отправь запрос.</p></div>:accepted.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · RATEIT</small></div><button className="secondary invite-btn" onClick={()=>{if(party.includes(friend.nickname)){setParty(items=>items.filter(name=>name!==friend.nickname))}else if(party.length>=4){setMessage("В пати максимум 4 друга и ты.")}else{setParty(items=>[...items,friend.nickname])}}}>{party.includes(friend.nickname)?"УБРАТЬ":"В ПАТИ"}</button><button className="remove-friend" aria-label={`Удалить ${friend.nickname}`} onClick={()=>void remove(friend)}>×</button></div>)}{outgoing.length>0&&<><div className="friend-list-title"><h2>Ожидают ответа</h2><span>{outgoing.length}</span></div>{outgoing.map(friend=><div className="friend-row" key={friend.id}><div className="friend-avatar">{friend.nickname.slice(0,1).toUpperCase()}</div><div className="friend-details"><b>{friend.nickname}</b><small>{friend.elo} ELO · запрос отправлен</small></div></div>)}</>}</article></section>;
 }
 
 function History() {
