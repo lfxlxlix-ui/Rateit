@@ -32,6 +32,7 @@ function Play() {
   const [stage, setStage] = useState<"setup" | "searching" | "found" | "banning" | "finished">("setup");
   const [banned, setBanned] = useState<string[]>([]);
   const [botTurn, setBotTurn] = useState(false);
+  const [readySeconds, setReadySeconds] = useState(30);
   const maps = ["Sandstone", "Province", "Rust", "Zone 9", "Breeze", "Dune", "Sakura"];
   const remaining = maps.filter((map) => !banned.includes(map));
 
@@ -39,6 +40,22 @@ function Play() {
     if (stage !== "searching") return;
     const timer = window.setTimeout(() => setStage("found"), 1400);
     return () => window.clearTimeout(timer);
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage !== "found") return;
+    setReadySeconds(30);
+    const timer = window.setInterval(() => {
+      setReadySeconds((seconds) => {
+        if (seconds <= 1) {
+          window.clearInterval(timer);
+          setStage("setup");
+          return 0;
+        }
+        return seconds - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
   }, [stage]);
 
   useEffect(() => {
@@ -94,7 +111,7 @@ function Play() {
       <button className="secondary wide" onClick={cancel}>ОТМЕНИТЬ ПОИСК</button>
     </article>}
     {stage === "found" && <article className="card demo-stage">
-      <div className="found-label">✓ МАТЧ НАЙДЕН</div><h2>Все игроки готовы?</h2><p>Тестовое лобби {mode}. Боты уже автоматически подтвердили участие.</p>
+      <div className="found-label">✓ МАТЧ НАЙДЕН · 00:{String(readySeconds).padStart(2, "0")}</div><h2>Все игроки готовы?</h2><p>Тестовое лобби {mode}. Боты уже автоматически подтвердили участие. Подтверди матч за 30 секунд.</p>
       <div className="ready-list"><div><b>ТЫ · Игрок RATEIT</b><strong className="waiting-you">ОЖИДАЕТ ПОДТВЕРЖДЕНИЯ</strong></div>{Array.from({length: mode === "5×5" ? 9 : 3},(_,i)=><div key={i}><b>Бот_{String(i+1).padStart(2,"0")}</b><strong className="win">✓ ГОТОВ</strong></div>)}</div>
       <button className="primary wide" onClick={accept}>ПРИНЯТЬ МАТЧ ✓</button>
       <button className="secondary wide" onClick={cancel}>ОТКЛОНИТЬ</button>
