@@ -1,22 +1,24 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabase, dbPool } from "./db.js";
+import {
+  START_ELO,
+  MAX_HOURS_DIFFERENCE,
+  RANKS,
+  getHoursPrefix,
+  isHoursRangeCompatible
+} from "../../../packages/shared/src/index.js";
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
 
-const levels = [
-  { level: 10, min: 2000, max: null },
-  { level: 9, min: 1750, max: 1999 },
-  { level: 8, min: 1530, max: 1749 },
-  { level: 7, min: 1350, max: 1529 },
-  { level: 6, min: 1200, max: 1349 },
-  { level: 5, min: 1050, max: 1199 },
-  { level: 4, min: 900, max: 1049 },
-  { level: 3, min: 751, max: 899 },
-  { level: 2, min: 501, max: 750 },
-  { level: 1, min: 100, max: 500 }
-] as const;
+const levels = RANKS
+  .filter((rank) => rank.min !== null)
+  .map((rank) => ({
+    level: Number(rank.name),
+    min: rank.min as number,
+    max: rank.max
+  }));
 
 function parseNonNegativeNumber(value: unknown): number | null {
   if (typeof value !== "string" || value.trim() === "") return null;
@@ -53,8 +55,8 @@ app.get("/api/v1", async () => ({
 }));
 
 app.get("/api/v1/config", async () => ({
-  startingElo: 751,
-  maxHoursDifference: 50,
+  startingElo: START_ELO,
+  maxHoursDifference: MAX_HOURS_DIFFERENCE,
   levels,
   note: "Challenger — отдельный статус для игроков из топ-1000 рейтинговой таблицы."
 }));
@@ -67,7 +69,7 @@ app.get<{ Querystring: { hours?: string } }>("/api/v1/hours/prefix", async (requ
     });
   }
 
-  return { hours, prefix: `${Math.floor(hours / 10) * 10}+` };
+  return { hours, prefix: getHoursPrefix(hours) };
 });
 
 app.get<{ Querystring: { a?: string; b?: string } }>("/api/v1/matchmaking/hours-check", async (request, reply) => {
@@ -85,8 +87,8 @@ app.get<{ Querystring: { a?: string; b?: string } }>("/api/v1/matchmaking/hours-
     playerA: a,
     playerB: b,
     difference,
-    compatible: difference <= 50,
-    maxDifference: 50
+    compatible: isHoursRangeCompatible(a, b),
+    maxDifference: MAX_HOURS_DIFFERENCE
   };
 });
 
