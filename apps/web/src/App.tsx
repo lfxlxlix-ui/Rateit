@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type Tab = "Главная" | "Друзья" | "Играть" | "История" | "Профиль";
 const tabs: Tab[] = ["Главная", "Друзья", "Играть", "История", "Профиль"];
@@ -195,12 +195,13 @@ function AuthPanel({ close }: { close: () => void }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
+  const [loginName, setLoginName] = useState("");
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const title = mode === "register" ? "СОЗДАТЬ АККАУНТ" : mode === "recover" ? "ВОССТАНОВЛЕНИЕ" : "С ВОЗВРАЩЕНИЕМ";
 
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (mode === "register" && password.length < 8) {
       setNotice("Пароль должен содержать минимум 8 символов.");
@@ -228,6 +229,7 @@ function AuthPanel({ close }: { close: () => void }) {
       {mode !== "recover" && <div className="auth-divider"><span>ИЛИ ПО ПАРОЛЮ</span></div>}
       <form onSubmit={submit} className="auth-form">
         {mode === "register" && <label>Игровой ник<input required maxLength={24} value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Твой ник в RATEIT" /></label>}
+        {mode === "register" && <label>Логин RATEIT<input required minLength={3} maxLength={24} value={loginName} onChange={e => setLoginName(e.target.value.replace(/\\s/g, ""))} placeholder="Придумай уникальный логин" /></label>}
         {mode === "register" && <label>Электронная почта<input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" /></label>}
         {mode !== "register" && <label>{mode === "recover" ? "Электронная почта" : "Логин или электронная почта"}<input required type={mode === "recover" ? "email" : "text"} value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder={mode === "recover" ? "name@example.com" : "Логин или name@example.com"} /></label>}
         {mode !== "recover" && <label>Пароль<input required type="password" minLength={8} value={password} onChange={e => setPassword(e.target.value)} placeholder="Минимум 8 символов" autoComplete={mode === "register" ? "new-password" : "current-password"} /></label>}
