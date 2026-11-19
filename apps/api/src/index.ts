@@ -365,6 +365,156 @@ app.delete<{ Params: { userId: string } }>("/api/v1/friends/:userId", async (req
   return {ok:true};
 });
 
+
+app.get("/api/v1/party", async (request, reply) => {
+  if (!dbPool) return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if (!user) return reply.code(401).send({error:"Войди в RATEIT."});
+  const [membership, invites]=await Promise.all([
+    dbPool.query(
+      `SELECT p.id,p.leader_user_id,p.status,p.max_members,
+              pm.role, u.id AS member_id,u.nickname,COALESCE(ps.elo,751) AS elo
+       FROM party_members mine
+       JOIN parties p ON p.id=mine.party_id
+       JOIN party_members pm ON pm.party_id=p.id AND pm.left_at IS NULL
+       JOIN users u ON u.id=pm.user_id
+       LEFT JOIN player_stats ps ON ps.user_id=u.id
+       WHERE mine.user_id=$1 AND mine.left_at IS NULL AND p.status='open'
+       ORDER BY pm.joined_at`,
+      [user.id]
+    ),
+    dbPool.query(
+      `SELECT i.id AS invite_id,i.party_id,i.expires_at,u.nickname AS inviter_nickname,
+              p.max_members, (SELECT count(*) FROM party_members pm WHERE pm.party_id=p.id AND pm.left_at IS NULL) AS member_count
+       FROM party_invites i JOIN users u ON u.id=i.invited_by JOIN parties p ON p.id=i.party_id
+       WHERE i.invitee_user_id=$1 AND i.status='pending' AND i.expires_at>now() AND p.status='open'
+       ORDER BY i.created_at DESC`,
+      [user.id]
+    )
+  ]);
+  const members=membership.rows;
+  return {
+    party: members.length ? {id:members[0].id,leaderUserId:members[0].leader_user_id,maxMembers:members[0].max_members,members:members.map((m:any)=>({id:m.member_id,nickname:m.nickname,elo:m.elo,role:m.role}))} : null,
+    invites: invites.rows
+  };
+});
+
+app.post<{Body:{maxMembers?:2|5}}>("/api/v1/party/create", async (request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const maxMembers=request.body?.maxMembers;
+  if(maxMembers!==2&&maxMembers!==5)return reply.code(400).send({error:"Размер пати может быть 2 или 5 игроков."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const active=await client.query("SELECT party_id FROM party_members WHERE user_id=$1 AND left_at IS NULL FOR UPDATE",[user.id]);
+    if(active.rowCount){await client.query("ROLLBACK");return reply.code(409).send({error:"Ты уже состоишь в активной пати."});}
+    const created=await client.query("INSERT INTO parties(leader_user_id,max_members) VALUES($1,$2) RETURNING id",[user.id,maxMembers]);
+    await client.query("INSERT INTO party_members(party_id,user_id,role) VALUES($1,$2,'leader')",[created.rows[0].id,user.id]);
+    await client.query("COMMIT");
+    return reply.code(201).send({partyId:created.rows[0].id,maxMembers});
+  }catch(error){
+    await client.query("ROLLBACK");
+    const pgError=error as {code?:string};
+    if(pgError.code==="23505")return reply.code(409).send({error:"Ты уже состоишь в активной пати."});
+    request.log.error(error);return reply.code(500).send({error:"Не удалось создать пати."});
+  }finally{client.release();}
+});
+
+app.post<{Body:{userId?:string}}>("/api/v1/party/invite",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const inviteeId=request.body?.userId;
+  if(!inviteeId||inviteeId===user.id)return reply.code(400).send({error:"Выбери друга для приглашения."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const own=await client.query(
+      "SELECT p.id,p.max_members FROM parties p JOIN party_members pm ON pm.party_id=p.id WHERE pm.user_id=$1 AND pm.left_at IS NULL AND pm.role='leader' AND p.status='open' FOR UPDATE",
+      [user.id]
+    );
+    if(!own.rowCount){await client.query("ROLLBACK");return reply.code(409).send({error:"Сначала создай пати. Приглашать может лидер."});}
+    const party=own.rows[0];
+    const friendship=await client.query("SELECT 1 FROM friendships WHERE status='accepted' AND ((user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1))",[user.id,inviteeId]);
+    if(!friendship.rowCount){await client.query("ROLLBACK");return reply.code(403).send({error:"Приглашать в пати можно только друзей RATEIT."});}
+    const active=await client.query("SELECT 1 FROM party_members WHERE user_id=$1 AND left_at IS NULL",[inviteeId]);
+    if(active.rowCount){await client.query("ROLLBACK");return reply.code(409).send({error:"Игрок уже состоит в пати."});}
+    const count=await client.query("SELECT count(*)::int AS total FROM party_members WHERE party_id=$1 AND left_at IS NULL",[party.id]);
+    if(count.rows[0].total>=party.max_members){await client.query("ROLLBACK");return reply.code(409).send({error:"В пати больше нет свободных мест."});}
+    await client.query("INSERT INTO party_invites(party_id,invited_by,invitee_user_id) VALUES($1,$2,$3)",[party.id,user.id,inviteeId]);
+    await client.query("COMMIT");
+    return {ok:true,message:"Приглашение отправлено."};
+  }catch(error){
+    await client.query("ROLLBACK");
+    const pgError=error as {code?:string};
+    if(pgError.code==="23505")return reply.code(409).send({error:"Приглашение уже отправлено."});
+    request.log.error(error);return reply.code(500).send({error:"Не удалось отправить приглашение."});
+  }finally{client.release();}
+});
+
+app.post<{Body:{inviteId?:string;action?:"accept"|"decline"}}>("/api/v1/party/respond",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const {inviteId,action}=request.body??{};
+  if(!inviteId||!(action==="accept"||action==="decline"))return reply.code(400).send({error:"Некорректный ответ на приглашение."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const invite=await client.query(
+      "SELECT i.id,i.party_id,i.expires_at,p.status AS party_status,p.max_members FROM party_invites i JOIN parties p ON p.id=i.party_id WHERE i.id=$1 AND i.invitee_user_id=$2 AND i.status='pending' FOR UPDATE",
+      [inviteId,user.id]
+    );
+    if(!invite.rowCount||new Date(invite.rows[0].expires_at).getTime()<Date.now()||invite.rows[0].party_status!=="open"){
+      await client.query("UPDATE party_invites SET status='expired',responded_at=now() WHERE id=$1 AND invitee_user_id=$2 AND status='pending'",[inviteId,user.id]);
+      await client.query("COMMIT");return reply.code(410).send({error:"Приглашение истекло или пати закрыта."});
+    }
+    if(action==="decline"){
+      await client.query("UPDATE party_invites SET status='declined',responded_at=now() WHERE id=$1",[inviteId]);
+      await client.query("COMMIT");return {ok:true};
+    }
+    const active=await client.query("SELECT 1 FROM party_members WHERE user_id=$1 AND left_at IS NULL",[user.id]);
+    if(active.rowCount){await client.query("ROLLBACK");return reply.code(409).send({error:"Сначала выйди из текущей пати."});}
+    const count=await client.query("SELECT count(*)::int AS total FROM party_members WHERE party_id=$1 AND left_at IS NULL",[invite.rows[0].party_id]);
+    if(count.rows[0].total>=invite.rows[0].max_members){await client.query("ROLLBACK");return reply.code(409).send({error:"В пати больше нет свободных мест."});}
+    await client.query("INSERT INTO party_members(party_id,user_id,role) VALUES($1,$2,'member')",[invite.rows[0].party_id,user.id]);
+    await client.query("UPDATE party_invites SET status='accepted',responded_at=now() WHERE id=$1",[inviteId]);
+    await client.query("COMMIT");return {ok:true,message:"Ты вступил в пати."};
+  }catch(error){
+    await client.query("ROLLBACK");
+    const pgError=error as {code?:string};
+    if(pgError.code==="23505")return reply.code(409).send({error:"Ты уже состоишь в активной пати."});
+    request.log.error(error);return reply.code(500).send({error:"Не удалось обработать приглашение."});
+  }finally{client.release();}
+});
+
+app.post("/api/v1/party/leave",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const membership=await client.query(
+      "SELECT p.id,pm.role FROM party_members pm JOIN parties p ON p.id=pm.party_id WHERE pm.user_id=$1 AND pm.left_at IS NULL AND p.status='open' FOR UPDATE",
+      [user.id]
+    );
+    if(!membership.rowCount){await client.query("ROLLBACK");return reply.code(404).send({error:"Ты сейчас не состоишь в пати."});}
+    const {id,role}=membership.rows[0];
+    if(role==="leader"){
+      await client.query("UPDATE parties SET status='closed',updated_at=now() WHERE id=$1",[id]);
+      await client.query("UPDATE party_members SET left_at=now() WHERE party_id=$1 AND left_at IS NULL",[id]);
+      await client.query("UPDATE party_invites SET status='expired',responded_at=now() WHERE party_id=$1 AND status='pending'",[id]);
+    }else{
+      await client.query("UPDATE party_members SET left_at=now() WHERE party_id=$1 AND user_id=$2",[id,user.id]);
+    }
+    await client.query("COMMIT");return {ok:true,message:role==="leader"?"Пати закрыта.":"Ты вышел из пати."};
+  }catch(error){await client.query("ROLLBACK");request.log.error(error);return reply.code(500).send({error:"Не удалось выйти из пати."});}
+  finally{client.release();}
+});
+
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramBotUsername = "Rateit_auth_bot";
 const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
