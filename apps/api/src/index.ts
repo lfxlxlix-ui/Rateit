@@ -212,6 +212,45 @@ app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegr
   }
 });
 
+
+async function handleTelegramMenu(chatId: number, telegramUserId: number, command: string) {
+  if (!dbPool) return;
+  const found = await dbPool.query(
+    `SELECT u.id, u.nickname, u.standoff2_id, ps.elo, ps.level, ps.verified_hours,
+            ps.matches_played, ps.wins, ps.losses, ps.kills, ps.deaths
+     FROM auth_identities ai JOIN users u ON u.id = ai.user_id
+     LEFT JOIN player_stats ps ON ps.user_id = u.id
+     WHERE ai.provider = 'telegram' AND ai.provider_user_id = $1 LIMIT 1`,
+    [String(telegramUserId)]
+  );
+  const keyboard = { keyboard: [[{text:"👤 Профиль"},{text:"📊 Статистика"}],[{text:"⚔️ Матчи"},{text:"⚙️ Настройки"}]], resize_keyboard:true, is_persistent:true };
+  if (!found.rowCount) {
+    await sendTelegramMessage(chatId, "👋 <b>Добро пожаловать в RATEIT!</b>\\nТвой Telegram пока не привязан. Сначала войди на сайте RATEIT и привяжи Telegram в настройках аккаунта. После этого здесь появятся профиль, статистика и матчи.");
+  } else {
+    const u = found.rows[0];
+    const safe = (v: unknown) => String(v ?? "—").replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"} as Record<string,string>)[ch]);
+    let body = "";
+    if (["/start","/menu","🏠 Меню"].includes(command)) {
+      body = `🎮 <b>Личный кабинет RATEIT</b>\\nПривет, <b>${safe(u.nickname)}</b>! Выбери раздел в меню.`;
+    } else if (["/profile","👤 Профиль"].includes(command)) {
+      body = `👤 <b>Профиль</b>\\nНик: <b>${safe(u.nickname)}</b>\\nStandoff 2 ID: ${safe(u.standoff2_id)}\\nELO: <b>${u.elo ?? 751}</b>\\nУровень: <b>${u.level ?? 3}</b>`;
+    } else if (["/stats","📊 Статистика"].includes(command)) {
+      const n=Number(u.matches_played??0), wins=Number(u.wins??0), deaths=Number(u.deaths??0), kills=Number(u.kills??0);
+      body = `📊 <b>Статистика RATEIT</b>\\nELO: <b>${u.elo??751}</b>\\nМатчей: <b>${n}</b>\\nПобед: ${wins}\\nПоражений: ${u.losses??0}\\nWinrate: <b>${n?Math.round(wins/n*100):0}%</b>\\nУбийства / смерти: ${kills} / ${deaths}\\nK/D: <b>${deaths?(kills/deaths).toFixed(2):(kills?"∞":"—")}</b>\\nЧасы: ${safe(u.verified_hours)}`;
+    } else if (["/matches","⚔️ Матчи"].includes(command)) {
+      const rows=await dbPool.query(`SELECT m.map_name,m.mode,m.team_a_score,m.team_b_score,m.winner_team,mp.team FROM match_players mp JOIN matches m ON m.id=mp.match_id WHERE mp.user_id=$1 AND m.status='completed' ORDER BY m.completed_at DESC NULLS LAST LIMIT 5`,[u.id]);
+      body = rows.rowCount ? "⚔️ <b>Последние матчи</b>\\n"+rows.rows.map((m,i)=>`${i+1}. ${safe(m.map_name)} · ${m.mode} · ${m.team_a_score??"?"}:${m.team_b_score??"?"} · ${m.winner_team===m.team?"Победа":"Поражение"}`).join("\\n") : "⚔️ <b>История матчей</b>\\nЗавершённых матчей RATEIT пока нет.";
+    } else if (["/settings","⚙️ Настройки"].includes(command)) {
+      body = "⚙️ <b>Настройки аккаунта</b>\\nСмена пароля и управление привязками появятся в защищённом кабинете. Не отправляй пароль боту сообщением.";
+    } else {
+      body = "Выбери раздел в меню ниже или отправь /start.";
+    }
+    await sendTelegramMessage(chatId, body);
+  }
+  const response = await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:chatId,text:"Меню RATEIT:",reply_markup:keyboard})});
+  if (!response.ok) throw new Error(`Telegram keyboard send failed: ${response.status}`);
+}
+
 app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { id?: number } } } }>("/api/v1/webhooks/telegram", async (request, reply) => {
   if (!telegramToken || !telegramWebhookSecret || !dbPool) {
     return reply.code(503).send({ error: "Telegram webhook не настроен полностью." });
@@ -224,8 +263,13 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
   const text = message?.text ?? "";
   const chatId = message?.chat?.id;
   const telegramUserId = message?.from?.id;
+  if (!chatId || !telegramUserId) return { ok: true };
   const match = text.match(/^\/start(?:@\w+)?\s+([A-Za-z0-9_-]{20,100})$/);
-  if (!match || !chatId || !telegramUserId) return { ok: true };
+  if (!match) {
+    try { await handleTelegramMenu(chatId, telegramUserId, text.trim()); }
+    catch (error) { request.log.error(error); await sendTelegramMessage(chatId, "Не удалось открыть кабинет. Попробуй позже."); }
+    return { ok: true };
+  }
   const startToken = match[1];
   const code = String(randomInt(100000, 1000000));
   const client = await dbPool.connect();
