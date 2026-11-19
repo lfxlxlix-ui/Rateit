@@ -406,6 +406,54 @@ app.post("/api/v1/matchmaking/queue/cancel",async(request,reply)=>{
   return {ok:true,status:"idle"};
 });
 
+
+const RATEIT_MAP_POOL=["Sandstone","Province","Rust","Zone 9","Breeze","Dune","Sakura"] as const;
+app.get<{Params:{matchId:string}}>("/api/v1/matches/:matchId/maps",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const match=await dbPool.query("SELECT id,status,map_name FROM matches WHERE id=$1",[request.params.matchId]);
+  if(!match.rowCount)return reply.code(404).send({error:"Матч не найден."});
+  const own=await dbPool.query("SELECT team FROM match_players WHERE match_id=$1 AND user_id=$2",[request.params.matchId,user.id]);
+  if(!own.rowCount)return reply.code(403).send({error:"Ты не участвуешь в этом матче."});
+  const bans=await dbPool.query("SELECT map_name,banned_by_user_id,ban_order FROM match_map_bans WHERE match_id=$1 ORDER BY ban_order",[request.params.matchId]);
+  const nextOrder=bans.rowCount+1;
+  const nextTeam=nextOrder>6?null:(nextOrder%2===1?1:2);
+  const captain=nextTeam===null?null:await dbPool.query("SELECT user_id FROM match_players WHERE match_id=$1 AND team=$2 ORDER BY elo_before DESC,user_id LIMIT 1",[request.params.matchId,nextTeam]);
+  return {mapPool:RATEIT_MAP_POOL,bans:bans.rows,nextOrder,nextTeam,isMyTurn:nextTeam===own.rows[0].team&&captain?.rows[0]?.user_id===user.id,remainingMap:match.rows[0].map_name,status:match.rows[0].status};
+});
+
+app.post<{Params:{matchId:string};Body:{mapName?:string}}>("/api/v1/matches/:matchId/maps/ban",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const mapName=request.body?.mapName;
+  if(!mapName||!(RATEIT_MAP_POOL as readonly string[]).includes(mapName))return reply.code(400).send({error:"Выбери карту из доступного пула RATEIT."});
+  const client=await dbPool.connect();
+  try{
+    await client.query("BEGIN");
+    const match=await client.query("SELECT id,status FROM matches WHERE id=$1 FOR UPDATE",[request.params.matchId]);
+    if(!match.rowCount||match.rows[0].status!=="in_progress"){await client.query("ROLLBACK");return reply.code(409).send({error:"Баны карт доступны после подтверждения матча всеми игроками."});}
+    const own=await client.query("SELECT team FROM match_players WHERE match_id=$1 AND user_id=$2",[request.params.matchId,user.id]);
+    if(!own.rowCount){await client.query("ROLLBACK");return reply.code(403).send({error:"Ты не участник этого матча."});}
+    const bans=await client.query("SELECT map_name FROM match_map_bans WHERE match_id=$1 ORDER BY ban_order",[request.params.matchId]);
+    const nextOrder=bans.rowCount+1;
+    if(nextOrder>6){await client.query("ROLLBACK");return reply.code(409).send({error:"Все шесть банов уже сделаны."});}
+    if(bans.rows.some((ban:any)=>ban.map_name===mapName)){await client.query("ROLLBACK");return reply.code(409).send({error:"Эта карта уже забанена."});}
+    const expectedTeam=nextOrder%2===1?1:2;
+    if(own.rows[0].team!==expectedTeam){await client.query("ROLLBACK");return reply.code(403).send({error:"Сейчас ход другой команды."});}
+    const captain=await client.query("SELECT user_id FROM match_players WHERE match_id=$1 AND team=$2 ORDER BY elo_before DESC,user_id LIMIT 1",[request.params.matchId,expectedTeam]);
+    if(captain.rows[0]?.user_id!==user.id){await client.query("ROLLBACK");return reply.code(403).send({error:"Банить карту может капитан команды."});}
+    await client.query("INSERT INTO match_map_bans(match_id,map_name,banned_by_user_id,ban_order) VALUES($1,$2,$3,$4)",[request.params.matchId,mapName,user.id,nextOrder]);
+    const allBans=[...bans.rows.map((x:any)=>x.map_name),mapName];
+    const remaining=RATEIT_MAP_POOL.filter(name=>!allBans.includes(name));
+    if(allBans.length===6)await client.query("UPDATE matches SET map_name=$1 WHERE id=$2",[remaining[0],request.params.matchId]);
+    await client.query("COMMIT");
+    return {ok:true,banOrder:nextOrder,complete:allBans.length===6,remainingMap:allBans.length===6?remaining[0]:null};
+  }catch(error){await client.query("ROLLBACK");request.log.error(error);return reply.code(500).send({error:"Не удалось забанить карту."});}
+  finally{client.release();}
+});
+
 app.post<{Params:{matchId:string}}>("/api/v1/matches/:matchId/ready",async(request,reply)=>{
   if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
   const user=await authenticatedUser(request);
