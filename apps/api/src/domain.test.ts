@@ -74,7 +74,7 @@ test("ник нормализуется и ограничивается 24 си�
   assert.equal(normalizeNickname("  Player   One  "), "Player One");
   assert.equal(normalizeNickname(""), null);
   assert.equal(normalizeNickname("x".repeat(25)), null);
-  assert.equal(normalizeNickname("Player\\nAdmin"), null);
+  assert.equal(normalizeNickname("Player\nAdmin"), null);
   assert.equal(normalizeNickname(123), null);
 });
 
@@ -82,7 +82,7 @@ test("Standoff 2 ID проверяется без предположений о 
   assert.equal(normalizeStandoff2Id("  12345-abc  "), "12345-abc");
   assert.equal(normalizeStandoff2Id(""), null);
   assert.equal(normalizeStandoff2Id("x".repeat(65)), null);
-  assert.equal(normalizeStandoff2Id("abc\\u0000def"), null);
+  assert.equal(normalizeStandoff2Id("abc\u0000def"), null);
   assert.equal(normalizeStandoff2Id(12345), null);
 });
 
