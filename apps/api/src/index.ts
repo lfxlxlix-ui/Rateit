@@ -163,7 +163,7 @@ async function authenticatedUser(request: { headers: { authorization?: string } 
   const token = bearerToken(request);
   if (!token || token.length > 128) return null;
   const result = await dbPool.query(
-    "SELECT u.id,u.nickname,u.login_name,u.email,u.standoff2_id,ps.elo,ps.level,ps.verified_hours FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN player_stats ps ON ps.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at>now()",
+    "SELECT u.id,u.nickname,u.login_name,u.email,u.standoff2_id,ps.elo,ps.level,ps.verified_hours,ps.matches_played,ps.wins,ps.losses,ps.kills,ps.deaths FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN player_stats ps ON ps.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at>now()",
     [sha256(token)]
   );
   if (!result.rowCount) return null;
@@ -274,6 +274,24 @@ app.patch<{ Body: { nickname?: string; standoff2Id?: string } }>("/api/v1/profil
   }
 });
 
+
+
+app.get("/api/v1/matches/history",async(request,reply)=>{
+  if(!dbPool)return reply.code(503).send({error:"База данных недоступна."});
+  const user=await authenticatedUser(request);
+  if(!user)return reply.code(401).send({error:"Войди в RATEIT."});
+  const result=await dbPool.query(
+    `SELECT m.id,m.mode,m.map_name,m.team_a_score,m.team_b_score,m.winner_team,m.completed_at,
+            mp.team,mp.elo_before,mp.elo_change,mp.kills,mp.deaths,
+            CASE WHEN m.winner_team=mp.team THEN 'win'
+                 WHEN m.winner_team IS NULL THEN 'draw' ELSE 'loss' END AS result
+     FROM match_players mp JOIN matches m ON m.id=mp.match_id
+     WHERE mp.user_id=$1 AND m.status='completed'
+     ORDER BY m.completed_at DESC NULLS LAST,m.created_at DESC LIMIT 50`,
+    [user.id]
+  );
+  return {matches:result.rows};
+});
 
 app.get("/api/v1/friends", async (request, reply) => {
   if (!dbPool) return reply.code(503).send({ error: "База данных недоступна." });
