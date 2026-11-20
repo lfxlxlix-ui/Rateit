@@ -173,7 +173,7 @@ async function authenticatedUser(request: { headers: { authorization?: string } 
 
 app.post<{ Body: { nickname?: string; loginName?: string; email?: string; password?: string; telegramRegistrationToken?: string } }>("/api/v1/auth/register", async (request, reply) => {
   if (!dbPool) return reply.code(503).send({ error: "Сервис аккаунтов временно недоступен." });
-  const nickname = request.body?.nickname?.trim().replace(/\\s+/g," ");
+  const nickname = request.body?.nickname?.trim().replace(/\s+/g," ");
   const loginName = request.body?.loginName?.trim();
   const email = request.body?.email?.trim().toLowerCase();
   const password = request.body?.password;
@@ -255,7 +255,7 @@ app.patch<{ Body: { nickname?: string; standoff2Id?: string; hours?: number } }>
   if (!dbPool) return reply.code(503).send({ error: "База данных недоступна." });
   const user = await authenticatedUser(request);
   if (!user) return reply.code(401).send({ error: "Войди в аккаунт RATEIT." });
-  const nickname = request.body?.nickname?.trim().replace(/\\s+/g, " ");
+  const nickname = request.body?.nickname?.trim().replace(/\s+/g, " ");
   const standoff2Id = request.body?.standoff2Id?.trim();
   const hours = request.body?.hours;
   if (hours !== undefined && (!Number.isInteger(hours) || hours < 0 || hours > 100000)) return reply.code(400).send({ error: "Укажи целое количество часов от 0 до 100000." });
@@ -809,7 +809,7 @@ app.post<{ Body: { purpose?: "login" | "link" } }>("/api/v1/auth/telegram/start"
 app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegram/verify", async (request, reply) => {
   if (!dbPool) return reply.code(503).send({ error: "База данных не подключена." });
   const { challengeId, code } = request.body ?? {};
-  if (!challengeId || !/^[0-9a-f-]{36}$/i.test(challengeId) || !code || !/^\\d{6}$/.test(code)) {
+  if (!challengeId || !/^[0-9a-f-]{36}$/i.test(challengeId) || !code || !/^\d{6}$/.test(code)) {
     return reply.code(400).send({ error: "Укажи запрос авторизации и шестизначный код." });
   }
   const client = await dbPool.connect();
