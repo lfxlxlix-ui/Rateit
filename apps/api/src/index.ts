@@ -846,7 +846,7 @@ app.post<{ Body: { challengeId?: string } }>("/api/v1/auth/telegram/resend", asy
       "SELECT EXISTS (SELECT 1 FROM auth_identities WHERE provider='telegram' AND provider_user_id=$1) AS exists",
       [telegramUserId]
     );
-    const accountNotice = account.rows[0]?.exists ? "" : "\\n\\nℹ️ <b>Аккаунт RATEIT ещё не создан.</b> После подтверждения кода на сайте заполни форму регистрации.";
+    const accountNotice = account.rows[0]?.exists ? "" : "\n\nℹ️ <b>Аккаунт RATEIT ещё не создан.</b> После подтверждения кода на сайте заполни форму регистрации.";
     const message = [
       "⚠️ <b>БЕЗОПАСНОСТЬ АККАУНТА RATEIT</b>",
       "",
@@ -858,7 +858,7 @@ app.post<{ Body: { challengeId?: string } }>("/api/v1/auth/telegram/resend", asy
       "🔐 <b>ТВОЙ НОВЫЙ КОД ВХОДА:</b> <code>" + code + "</code>",
       "",
       "Код одноразовый и действует 5 минут. Предыдущий код больше не действует." + accountNotice
-    ].join("\\n");
+    ].join("\n");
     await sendTelegramMessage(Number(telegramUserId), message);
     return { ok: true, message: "Новый код отправлен ботом в Telegram." };
   } catch (error) {
