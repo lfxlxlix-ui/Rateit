@@ -31,3 +31,6 @@
 .telegram-warning b{display:inline-block;margin-bottom:5px;color:#ffd27c;letter-spacing:.4px}
 .telegram-auth-box .auth-form{margin-top:12px}
 .auth-providers button:disabled,.auth-form button:disabled{opacity:.55;cursor:wait}
+
+/* Keep the authentication dialog visible when mounted inside the app shell. */
+.app:has(.auth-backdrop){overflow:visible}
