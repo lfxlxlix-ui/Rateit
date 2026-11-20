@@ -30,7 +30,7 @@ function Home({ go }: { go: (tab: Tab) => void }) {
   </section>
   <section className="grid">
    <article className="card"><small>МАТЧМЕЙКИНГ</small><h2>Готов к игре?</h2><p>Выбери режим и найди игроков с близким рейтингом и игровым опытом.</p><button className="primary wide" onClick={()=>go("Играть")}>ПЕРЕЙТИ К ПОДБОРУ　→</button><small className="hint">Пока доступен тестовый режим. Реальная очередь — следующий этап.</small></article>
-   <article className="card"><small>СТАРТОВЫЙ ПРОГРЕСС</small><div className="rank"><b>3</b><div><h2>Уровень 3</h2><p>Стартовый рейтинг</p></div></div><div className="elo">751 <span>ELO</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{width:"0%"}}/></div><p className="between">Следующий уровень <b>149 ELO · 900</b></p></article>
+   <article className="card"><small>СТАРТОВЫЙ ПРОГРЕСС</small><div className="rank"><b>2</b><div><h2>Уровень 2</h2><p>Стартовый рейтинг</p></div></div><div className="elo">750 <span>ELO</span></div><div className="bar" aria-label="Прогресс до следующего уровня"><i style={{width:"0%"}}/></div><p className="between">Следующий уровень <b>150 ELO · 900</b></p></article>
   </section>
   <section className="features"><div><b>ЧЕСТНЫЙ ПОДБОР</b><span>Учитываем рейтинг и игровой опыт</span></div><div><b>ЕДИНЫЙ АККАУНТ</b><span>Android и Telegram в одном профиле</span></div><div><b>ТВОЯ СТАТИСТИКА</b><span>История матчей и прогресс ELO</span></div></section>
   <section className="home-extras"><article className="card"><small>ГЛОБАЛЬНЫЙ РЕЙТИНГ</small><h2>Таблица лидеров</h2>{leaderLoading?<p className="hint">Загружаем рейтинг…</p>:leaders.length===0?<p className="hint">Пока нет зарегистрированных игроков. Стань одним из первых!</p>:leaders.slice(0,10).map(player=><div className="leader-row" key={player.id}><b>#{player.position}</b><span>{player.nickname}{player.challenger?" · Challenger":""}</span><strong>{player.elo} ELO</strong></div>)}<p className="hint">Рейтинг формируется по ELO игроков RATEIT. Демонстрационные аккаунты не учитываются.</p></article><article className="card"><small>СЕЗОНЫ · ПЛАНИРУЮТСЯ</small><h2>Соревнуйся за место в топе</h2><p>Сезонные таблицы, турниры, награды и отдельная статистика каждого сезона — часть дорожной карты RATEIT.</p><button className="secondary wide" onClick={()=>go("Играть")}>ПЕРЕЙТИ К ТРЕНИРОВКЕ ↗</button></article></section>
@@ -175,7 +175,7 @@ function Play() {
       <h2>Тренировочный поиск с ботами</h2>
       <p>Запусти тестовую катку: боты найдутся автоматически, примут матч, а затем вы по очереди забаните карты. Никакие реальные игроки не подключаются.</p>
       <div className="modes">{(["5×5", "2×2"] as const).map((x) => <button key={x} className={mode === x ? "chosen" : ""} onClick={() => setMode(x)}>{x}</button>)}</div>
-      <div className="queue-info"><span>Режим</span><b>{mode}</b><span>Твой тестовый ELO</span><b>751</b><span>Состав</span><b>{mode === "5×5" ? "9 ботов и ты" : "3 бота и ты"}</b><span>Карты в пуле</span><b>7 · банов 6</b></div>
+      <div className="queue-info"><span>Режим</span><b>{mode}</b><span>Твой тестовый ELO</span><b>750</b><span>Состав</span><b>{mode === "5×5" ? "9 ботов и ты" : "3 бота и ты"}</b><span>Карты в пуле</span><b>7 · банов 6</b></div>
       <button className="primary wide" onClick={startSearch}>НАЧАТЬ ПОИСК С БОТАМИ ↗</button>
       <p className="hint">Это локальная симуляция интерфейса. Рейтинг и статистика аккаунта не меняются.</p>
     </article>}
@@ -358,7 +358,7 @@ function History() {
 
 
 type PlayerProfile={nickname:string;playerId:string;hours:string;elo:number;level:number;matches:number;wins:number;losses:number;kills:number;deaths:number};
-const emptyProfile:PlayerProfile={nickname:"Игрок RATEIT",playerId:"",hours:"",elo:751,level:3,matches:0,wins:0,losses:0,kills:0,deaths:0};
+const emptyProfile:PlayerProfile={nickname:"Игрок RATEIT",playerId:"",hours:"",elo:750,level:2,matches:0,wins:0,losses:0,kills:0,deaths:0};
 function Profile() {
  const [profile,setProfile]=useState<PlayerProfile>(emptyProfile);
  const [draft,setDraft]=useState(profile);
@@ -371,7 +371,7 @@ function Profile() {
   const token=localStorage.getItem("rateit-session");
   if(!token){setLoading(false);return}
   fetch(`${apiBase}/api/v1/auth/me`,{headers:{authorization:`Bearer ${token}`}})
-   .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось загрузить профиль.");const u=data.user;const next={nickname:u.nickname||"Игрок RATEIT",playerId:u.standoff2_id||"",hours:u.verified_hours==null?"":String(u.verified_hours),elo:u.elo??751,level:u.level??3,matches:u.matches_played??0,wins:u.wins??0,losses:u.losses??0,kills:u.kills??0,deaths:u.deaths??0};setProfile(next);setDraft(next);setAuthenticated(true)})
+   .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||"Не удалось загрузить профиль.");const u=data.user;const next={nickname:u.nickname||"Игрок RATEIT",playerId:u.standoff2_id||"",hours:u.verified_hours==null?"":String(u.verified_hours),elo:u.elo??750,level:u.level??2,matches:u.matches_played??0,wins:u.wins??0,losses:u.losses??0,kills:u.kills??0,deaths:u.deaths??0};setProfile(next);setDraft(next);setAuthenticated(true)})
    .catch(error=>setMessage(error instanceof Error?error.message:"Ошибка загрузки профиля."))
    .finally(()=>setLoading(false));
  },[]);
