@@ -565,7 +565,7 @@ function AuthPanel({ close, initialMode = "login" }: { close: () => void; initia
           <b>{provider.mark}</b><span>{provider.label}</span><i>↗</i>
         </button>)}
       </div>}
-      {telegramBotUrl && mode !== "recover" && <section className="telegram-auth-box">
+      {telegramBotUrl && mode !== "recover" && mode !== "register" && <section className="telegram-auth-box">
         <p><b>1.</b> Открой бота и нажми Start один раз. Повторно вводить /start не нужно.</p>
         <a className="primary wide telegram-open" href={telegramBotUrl} target="_blank" rel="noreferrer">ОТКРЫТЬ TELEGRAM ↗</a>
         <button type="button" className="secondary wide telegram-refresh" disabled={telegramBusy} onClick={() => void resendTelegramCode()}>{telegramBusy ? "ОТПРАВЛЯЕМ..." : "ОТПРАВИТЬ НОВЫЙ КОД"}</button>
@@ -573,7 +573,7 @@ function AuthPanel({ close, initialMode = "login" }: { close: () => void; initia
         {!telegramVerified ? <form className="auth-form" onSubmit={verifyTelegramCode}>
           <label>2. Шестизначный код из Telegram<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={telegramCode} onChange={e=>setTelegramCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000" /></label>
           <button className="primary wide" disabled={telegramBusy || telegramCode.length !== 6} type="submit">{telegramBusy ? "ПРОВЕРЯЕМ..." : "ПОДТВЕРДИТЬ КОД"}</button>
-        </form> : <p className="auth-notice">Telegram подтверждён. Создание полноценной сессии RATEIT будет доступно после подключения базы и системы аккаунтов.</p>}
+        </form> : <p className="auth-notice">Telegram подтверждён. Теперь заполни форму регистрации RATEIT.</p>}
       </section>}
       {mode !== "recover" && <div className="auth-divider"><span>ИЛИ ПО ПАРОЛЮ</span></div>}
       <form onSubmit={submit} className="auth-form">
