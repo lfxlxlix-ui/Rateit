@@ -806,6 +806,68 @@ app.post<{ Body: { purpose?: "login" | "link" } }>("/api/v1/auth/telegram/start"
   }
 });
 
+
+app.post<{ Body: { challengeId?: string } }>("/api/v1/auth/telegram/resend", async (request, reply) => {
+  if (!dbPool || !telegramToken) return reply.code(503).send({ error: "Telegram временно недоступен." });
+  const challengeId = request.body?.challengeId;
+  if (!challengeId || !/^[0-9a-f-]{36}$/i.test(challengeId)) return reply.code(400).send({ error: "Запрос авторизации не найден. Начни вход через Telegram заново." });
+  const code = String(randomInt(100000, 1000000));
+  const client = await dbPool.connect();
+  let telegramUserId: string | null = null;
+  try {
+    await client.query("BEGIN");
+    const current = await client.query(
+      "SELECT telegram_user_id, expires_at FROM telegram_auth_challenges WHERE id=$1 AND consumed_at IS NULL AND telegram_user_id IS NOT NULL FOR UPDATE",
+      [challengeId]
+    );
+    if (!current.rowCount) {
+      await client.query("ROLLBACK");
+      return reply.code(400).send({ error: "Запрос истёк или уже использован. Начни вход через Telegram заново." });
+    }
+    if (new Date(current.rows[0].expires_at).getTime() > Date.now() + 4 * 60 * 1000) {
+      await client.query("ROLLBACK");
+      return reply.code(429).send({ error: "Новый код можно запросить не чаще одного раза в минуту." });
+    }
+    telegramUserId = String(current.rows[0].telegram_user_id);
+    await client.query(
+      "UPDATE telegram_auth_challenges SET code_hash=$2, expires_at=now()+interval '5 minutes', attempts=0 WHERE id=$1",
+      [challengeId, sha256(code)]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    request.log.error(error);
+    return reply.code(500).send({ error: "Не удалось создать новый код." });
+  } finally {
+    client.release();
+  }
+  try {
+    const account = await dbPool.query(
+      "SELECT EXISTS (SELECT 1 FROM auth_identities WHERE provider='telegram' AND provider_user_id=$1) AS exists",
+      [telegramUserId]
+    );
+    const accountNotice = account.rows[0]?.exists ? "" : "\\n\\nℹ️ <b>Аккаунт RATEIT ещё не создан.</b> После подтверждения кода на сайте заполни форму регистрации.";
+    const message = [
+      "⚠️ <b>БЕЗОПАСНОСТЬ АККАУНТА RATEIT</b>",
+      "",
+      "• Никому не сообщай этот код — даже людям, представляющимся администрацией RATEIT.",
+      "• Сотрудники RATEIT никогда не запрашивают код авторизации.",
+      "• Передача, продажа, покупка и аренда аккаунтов запрещены правилами RATEIT.",
+      "• За подтверждённую продажу или передачу аккаунта предусмотрена блокировка, вплоть до перманентного бана.",
+      "",
+      "🔐 <b>ТВОЙ НОВЫЙ КОД ВХОДА:</b> <code>" + code + "</code>",
+      "",
+      "Код одноразовый и действует 5 минут. Предыдущий код больше не действует." + accountNotice
+    ].join("\\n");
+    await sendTelegramMessage(Number(telegramUserId), message);
+    return { ok: true, message: "Новый код отправлен ботом в Telegram." };
+  } catch (error) {
+    request.log.error(error);
+    await dbPool.query("UPDATE telegram_auth_challenges SET code_hash=NULL WHERE id=$1 AND consumed_at IS NULL", [challengeId]);
+    return reply.code(502).send({ error: "Не удалось отправить сообщение в Telegram. Открой бота и проверь, что чат доступен." });
+  }
+});
+
 app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegram/verify", async (request, reply) => {
   if (!dbPool) return reply.code(503).send({ error: "База данных не подключена." });
   const { challengeId, code } = request.body ?? {};
