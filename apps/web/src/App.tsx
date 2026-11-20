@@ -449,6 +449,32 @@ function AuthPanel({ close, initialMode = "login" }: { close: () => void; initia
     }
   };
 
+
+  const resendTelegramCode = async () => {
+    const challengeId = telegramChallengeId || sessionStorage.getItem("rateit-telegram-challenge") || "";
+    if (!challengeId) {
+      setNotice("Сначала открой бота и нажми Start один раз.");
+      return;
+    }
+    setTelegramBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch(`${apiBase}/api/v1/auth/telegram/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challengeId })
+      });
+      const data = await response.json() as { message?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "Не удалось отправить новый код.");
+      setTelegramCode("");
+      setNotice(data.message || "Новый код отправлен в Telegram.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Не удалось запросить новый код.");
+    } finally {
+      setTelegramBusy(false);
+    }
+  };
+
   const verifyTelegramCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const challengeId = telegramChallengeId || sessionStorage.getItem("rateit-telegram-challenge") || "";
@@ -540,9 +566,9 @@ function AuthPanel({ close, initialMode = "login" }: { close: () => void; initia
         </button>)}
       </div>}
       {telegramBotUrl && mode !== "recover" && <section className="telegram-auth-box">
-        <p><b>1.</b> Открой бота и нажми Start.</p>
+        <p><b>1.</b> Открой бота и нажми Start один раз. Повторно вводить /start не нужно.</p>
         <a className="primary wide telegram-open" href={telegramBotUrl} target="_blank" rel="noreferrer">ОТКРЫТЬ TELEGRAM ↗</a>
-        <button type="button" className="secondary wide telegram-refresh" disabled={telegramBusy} onClick={() => void startTelegramLogin()}>{telegramBusy ? "СОЗДАЁМ НОВЫЙ ЗАПРОС..." : "ЗАПРОСИТЬ НОВЫЙ КОД"}</button>
+        <button type="button" className="secondary wide telegram-refresh" disabled={telegramBusy} onClick={() => void resendTelegramCode()}>{telegramBusy ? "ОТПРАВЛЯЕМ..." : "ОТПРАВИТЬ НОВЫЙ КОД"}</button>
         <div className="telegram-warning"><b>⚠️ ВАЖНО — НЕ ПЕРЕДАВАЙ КОД</b><br/>Никому не сообщай код, даже людям, представляющимся администрацией RATEIT. Продажа, покупка, аренда и передача аккаунтов запрещены; за подтверждённые нарушения возможна блокировка, вплоть до перманентного бана.</div>
         {!telegramVerified ? <form className="auth-form" onSubmit={verifyTelegramCode}>
           <label>2. Шестизначный код из Telegram<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={telegramCode} onChange={e=>setTelegramCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="000000" /></label>
