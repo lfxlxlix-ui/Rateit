@@ -16,7 +16,8 @@ if (!dbPool) {
     { name: "005_standoff2_id_immutable", path: resolve(here, "../db/migrations/005_standoff2_id_immutable.sql") },
     { name: "006_party_invites", path: resolve(here, "../db/migrations/006_party_invites.sql") },
     { name: "007_matchmaking_queue", path: resolve(here, "../db/migrations/007_matchmaking_queue.sql") },
-    { name: "008_telegram_auth_purpose", path: resolve(here, "../db/migrations/008_telegram_auth_purpose.sql") }
+    { name: "008_telegram_auth_purpose", path: resolve(here, "../db/migrations/008_telegram_auth_purpose.sql") },
+    { name: "009_telegram_registration_tickets", path: resolve(here, "../db/migrations/009_telegram_registration_tickets.sql") }
   ];
   const client = await dbPool.connect();
   try {
