@@ -178,7 +178,7 @@ app.post<{ Body: { nickname?: string; loginName?: string; email?: string; passwo
   const email = request.body?.email?.trim().toLowerCase();
   const password = request.body?.password;
   const telegramRegistrationToken = request.body?.telegramRegistrationToken;
-  if (!nickname || nickname.length > 24 || !loginName || !/^[a-zA-Z0-9_]{3,24}$/.test(loginName) || !email || email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || !password || password.length < 8 || password.length > 128) {
+  if (!nickname || nickname.length > 24 || !loginName || !/^[a-zA-Z0-9_]{3,24}$/.test(loginName) || !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password || password.length < 8 || password.length > 128) {
     return reply.code(400).send({ error: "Проверь ник, логин (3–24 символа: латиница, цифры, _), почту и пароль (8–128 символов)." });
   }
   const client = await dbPool.connect();
