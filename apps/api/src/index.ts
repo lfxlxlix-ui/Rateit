@@ -890,23 +890,23 @@ async function handleTelegramMenu(chatId: number, telegramUserId: number, comman
   );
   const keyboard = { keyboard: [[{text:"👤 Профиль"},{text:"📊 Статистика"}],[{text:"⚔️ Матчи"},{text:"⚙️ Настройки"}]], resize_keyboard:true, is_persistent:true };
   if (!found.rowCount) {
-    await sendTelegramMessage(chatId, "👋 <b>Добро пожаловать в RATEIT!</b>\\nТвой Telegram пока не привязан. Сначала войди на сайте RATEIT и привяжи Telegram в настройках аккаунта. После этого здесь появятся профиль, статистика и матчи.");
+    await sendTelegramMessage(chatId, "👋 <b>Добро пожаловать в RATEIT!</b>\nТвой Telegram пока не привязан. Сначала войди на сайте RATEIT и привяжи Telegram в настройках аккаунта. После этого здесь появятся профиль, статистика и матчи.");
   } else {
     const u = found.rows[0];
     const safe = (v: unknown) => String(v ?? "—").replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"} as Record<string,string>)[ch]);
     let body = "";
     if (["/start","/menu","🏠 Меню"].includes(command)) {
-      body = `🎮 <b>Личный кабинет RATEIT</b>\\nПривет, <b>${safe(u.nickname)}</b>! Выбери раздел в меню.`;
+      body = `🎮 <b>Личный кабинет RATEIT</b>\nПривет, <b>${safe(u.nickname)}</b>! Выбери раздел в меню.`;
     } else if (["/profile","👤 Профиль"].includes(command)) {
-      body = `👤 <b>Профиль</b>\\nНик: <b>${safe(u.nickname)}</b>\\nStandoff 2 ID: ${safe(u.standoff2_id)}\\nELO: <b>${u.elo ?? 751}</b>\\nУровень: <b>${u.level ?? 3}</b>`;
+      body = `👤 <b>Профиль</b>\nНик: <b>${safe(u.nickname)}</b>\nStandoff 2 ID: ${safe(u.standoff2_id)}\nELO: <b>${u.elo ?? 751}</b>\nУровень: <b>${u.level ?? 3}</b>`;
     } else if (["/stats","📊 Статистика"].includes(command)) {
       const n=Number(u.matches_played??0), wins=Number(u.wins??0), deaths=Number(u.deaths??0), kills=Number(u.kills??0);
-      body = `📊 <b>Статистика RATEIT</b>\\nELO: <b>${u.elo??751}</b>\\nМатчей: <b>${n}</b>\\nПобед: ${wins}\\nПоражений: ${u.losses??0}\\nWinrate: <b>${n?Math.round(wins/n*100):0}%</b>\\nУбийства / смерти: ${kills} / ${deaths}\\nK/D: <b>${deaths?(kills/deaths).toFixed(2):(kills?"∞":"—")}</b>\\nЧасы: ${safe(u.verified_hours)}`;
+      body = `📊 <b>Статистика RATEIT</b>\nELO: <b>${u.elo??751}</b>\nМатчей: <b>${n}</b>\nПобед: ${wins}\nПоражений: ${u.losses??0}\nWinrate: <b>${n?Math.round(wins/n*100):0}%</b>\nУбийства / смерти: ${kills} / ${deaths}\nK/D: <b>${deaths?(kills/deaths).toFixed(2):(kills?"∞":"—")}</b>\nЧасы: ${safe(u.verified_hours)}`;
     } else if (["/matches","⚔️ Матчи"].includes(command)) {
       const rows=await dbPool.query(`SELECT m.map_name,m.mode,m.team_a_score,m.team_b_score,m.winner_team,mp.team FROM match_players mp JOIN matches m ON m.id=mp.match_id WHERE mp.user_id=$1 AND m.status='completed' ORDER BY m.completed_at DESC NULLS LAST LIMIT 5`,[u.id]);
-      body = rows.rowCount ? "⚔️ <b>Последние матчи</b>\\n"+rows.rows.map((m,i)=>`${i+1}. ${safe(m.map_name)} · ${m.mode} · ${m.team_a_score??"?"}:${m.team_b_score??"?"} · ${m.winner_team===m.team?"Победа":"Поражение"}`).join("\\n") : "⚔️ <b>История матчей</b>\\nЗавершённых матчей RATEIT пока нет.";
+      body = rows.rowCount ? "⚔️ <b>Последние матчи</b>\n"+rows.rows.map((m,i)=>`${i+1}. ${safe(m.map_name)} · ${m.mode} · ${m.team_a_score??"?"}:${m.team_b_score??"?"} · ${m.winner_team===m.team?"Победа":"Поражение"}`).join("\n") : "⚔️ <b>История матчей</b>\nЗавершённых матчей RATEIT пока нет.";
     } else if (["/settings","⚙️ Настройки"].includes(command)) {
-      body = "⚙️ <b>Настройки аккаунта</b>\\nСмена пароля и управление привязками появятся в защищённом кабинете. Не отправляй пароль боту сообщением.";
+      body = "⚙️ <b>Настройки аккаунта</b>\nСмена пароля и управление привязками появятся в защищённом кабинете. Не отправляй пароль боту сообщением.";
     } else {
       body = "Выбери раздел в меню ниже или отправь /start.";
     }
@@ -968,7 +968,7 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
     );
     const accountNotice = account.rows[0]?.exists
       ? ""
-      : "\\n\\nℹ️ <b>Аккаунт RATEIT ещё не создан.</b> После подтверждения кода на сайте заполни форму регистрации.";
+      : "\n\nℹ️ <b>Аккаунт RATEIT ещё не создан.</b> После подтверждения кода на сайте заполни форму регистрации.";
     const botMessage = [
       "⚠️ <b>БЕЗОПАСНОСТЬ АККАУНТА RATEIT</b>",
       "",
@@ -980,7 +980,7 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
       "🔐 <b>ТВОЙ КОД ВХОДА:</b> <code>" + code + "</code>",
       "",
       "Код одноразовый и действует 5 минут. Если ты не запрашивал вход, просто проигнорируй это сообщение." + accountNotice
-    ].join("\\n");
+    ].join("\n");
     try {
       await sendTelegramMessage(chatId, botMessage);
     } catch (error) {
