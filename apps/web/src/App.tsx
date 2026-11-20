@@ -496,7 +496,10 @@ function AuthPanel({ close, initialMode = "login" }: { close: () => void; initia
       if (data.verified && data.accountExists === false && data.registrationToken) {
         sessionStorage.removeItem("rateit-telegram-challenge");
         sessionStorage.setItem("rateit-telegram-registration-token", data.registrationToken);
-        window.location.assign("/registration");
+        setMode("register");
+        setTelegramVerified(false);
+        setTelegramCode("");
+        setNotice("Telegram подтверждён. Заполни форму ниже, чтобы создать аккаунт RATEIT.");
         return;
       }
       if (data.verified && data.accountExists !== false && data.token) {
