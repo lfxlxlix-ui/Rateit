@@ -198,12 +198,12 @@ app.post<{ Body: { nickname?: string; loginName?: string; email?: string; passwo
       await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'telegram',$2)", [userId, ticket.rows[0].telegram_user_id]);
       await client.query("UPDATE telegram_registration_tickets SET consumed_at=now() WHERE token_hash=$1", [sha256(telegramRegistrationToken)]);
     }
-    await client.query("INSERT INTO player_stats(user_id,elo,level) VALUES($1,751,3)",[userId]);
+    await client.query("INSERT INTO player_stats(user_id,elo,level) VALUES($1,750,2)",[userId]);
     await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'email',$2)",[userId,email]);
     const token = randomBytes(32).toString("base64url");
     await client.query("INSERT INTO auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')",[userId,sha256(token)]);
     await client.query("COMMIT");
-    return reply.code(201).send({ token, user:{id:userId,nickname,loginName,email,elo:751,level:3} });
+    return reply.code(201).send({ token, user:{id:userId,nickname,loginName,email,elo:750,level:2} });
   } catch (error) {
     await client.query("ROLLBACK");
     const pgError = error as { code?: string };
@@ -498,9 +498,9 @@ app.get("/api/v1/leaderboard",async()=>{
     `SELECT ranked.id,ranked.nickname,ranked.elo,ranked.level,ranked.matches_played,ranked.wins,ranked.losses,ranked.position,
             CASE WHEN ranked.position<=1000 THEN true ELSE false END AS challenger
      FROM (
-       SELECT u.id,u.nickname,COALESCE(ps.elo,751) AS elo,COALESCE(ps.level,3) AS level,
+       SELECT u.id,u.nickname,COALESCE(ps.elo,750) AS elo,COALESCE(ps.level,3) AS level,
               COALESCE(ps.matches_played,0) AS matches_played,COALESCE(ps.wins,0) AS wins,COALESCE(ps.losses,0) AS losses,
-              row_number() OVER(ORDER BY COALESCE(ps.elo,751) DESC,COALESCE(ps.wins,0) DESC,u.created_at ASC) AS position
+              row_number() OVER(ORDER BY COALESCE(ps.elo,750) DESC,COALESCE(ps.wins,0) DESC,u.created_at ASC) AS position
        FROM users u LEFT JOIN player_stats ps ON ps.user_id=u.id
      ) ranked
      ORDER BY ranked.position LIMIT 100`
@@ -531,7 +531,7 @@ app.get("/api/v1/friends", async (request, reply) => {
   if (!user) return reply.code(401).send({ error: "Войди в RATEIT." });
   const result = await dbPool.query(
     `SELECT DISTINCT ON (u.id) f.user_id AS relation_user_id, f.friend_id AS other_id, f.status,
-            u.id, u.nickname, COALESCE(ps.elo,751) AS elo,
+            u.id, u.nickname, COALESCE(ps.elo,750) AS elo,
             CASE WHEN f.user_id=$1 THEN 'outgoing' ELSE 'incoming' END AS direction
      FROM friendships f
      JOIN users u ON u.id=CASE WHEN f.user_id=$1 THEN f.friend_id ELSE f.user_id END
@@ -623,7 +623,7 @@ app.get("/api/v1/party", async (request, reply) => {
   const [membership, invites]=await Promise.all([
     dbPool.query(
       `SELECT p.id,p.leader_user_id,p.status,p.max_members,
-              pm.role, u.id AS member_id,u.nickname,COALESCE(ps.elo,751) AS elo
+              pm.role, u.id AS member_id,u.nickname,COALESCE(ps.elo,750) AS elo
        FROM party_members mine
        JOIN parties p ON p.id=mine.party_id
        JOIN party_members pm ON pm.party_id=p.id AND pm.left_at IS NULL
@@ -960,10 +960,10 @@ async function handleTelegramMenu(chatId: number, telegramUserId: number, comman
     if (["/start","/menu","🏠 Меню"].includes(command)) {
       body = `🎮 <b>Личный кабинет RATEIT</b>\nПривет, <b>${safe(u.nickname)}</b>! Выбери раздел в меню.`;
     } else if (["/profile","👤 Профиль"].includes(command)) {
-      body = `👤 <b>Профиль</b>\nНик: <b>${safe(u.nickname)}</b>\nStandoff 2 ID: ${safe(u.standoff2_id)}\nELO: <b>${u.elo ?? 751}</b>\nУровень: <b>${u.level ?? 3}</b>`;
+      body = `👤 <b>Профиль</b>\nНик: <b>${safe(u.nickname)}</b>\nStandoff 2 ID: ${safe(u.standoff2_id)}\nELO: <b>${u.elo ?? 750}</b>\nУровень: <b>${u.level ?? 2}</b>`;
     } else if (["/stats","📊 Статистика"].includes(command)) {
       const n=Number(u.matches_played??0), wins=Number(u.wins??0), deaths=Number(u.deaths??0), kills=Number(u.kills??0);
-      body = `📊 <b>Статистика RATEIT</b>\nELO: <b>${u.elo??751}</b>\nМатчей: <b>${n}</b>\nПобед: ${wins}\nПоражений: ${u.losses??0}\nWinrate: <b>${n?Math.round(wins/n*100):0}%</b>\nУбийства / смерти: ${kills} / ${deaths}\nK/D: <b>${deaths?(kills/deaths).toFixed(2):(kills?"∞":"—")}</b>\nЧасы: ${safe(u.verified_hours)}`;
+      body = `📊 <b>Статистика RATEIT</b>\nELO: <b>${u.elo??750}</b>\nМатчей: <b>${n}</b>\nПобед: ${wins}\nПоражений: ${u.losses??0}\nWinrate: <b>${n?Math.round(wins/n*100):0}%</b>\nУбийства / смерти: ${kills} / ${deaths}\nK/D: <b>${deaths?(kills/deaths).toFixed(2):(kills?"∞":"—")}</b>\nЧасы: ${safe(u.verified_hours)}`;
     } else if (["/matches","⚔️ Матчи"].includes(command)) {
       const rows=await dbPool.query(`SELECT m.map_name,m.mode,m.team_a_score,m.team_b_score,m.winner_team,mp.team FROM match_players mp JOIN matches m ON m.id=mp.match_id WHERE mp.user_id=$1 AND m.status='completed' ORDER BY m.completed_at DESC NULLS LAST LIMIT 5`,[u.id]);
       body = rows.rowCount ? "⚔️ <b>Последние матчи</b>\n"+rows.rows.map((m,i)=>`${i+1}. ${safe(m.map_name)} · ${m.mode} · ${m.team_a_score??"?"}:${m.team_b_score??"?"} · ${m.winner_team===m.team?"Победа":"Поражение"}`).join("\n") : "⚔️ <b>История матчей</b>\nЗавершённых матчей RATEIT пока нет.";
