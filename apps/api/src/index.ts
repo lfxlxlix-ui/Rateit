@@ -961,18 +961,9 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
   }
   client.release();
   if (challengeId) {
-    const botMessage = [
-      "⚠️ <b>БЕЗОПАСНОСТЬ АККАУНТА RATEIT</b>",
-      "",
-      "• Никому не сообщай этот код — даже людям, представляющимся администрацией RATEIT.",
-      "• Сотрудники RATEIT никогда не запрашивают код авторизации.",
-      "• Передача, продажа, покупка и аренда аккаунтов запрещены правилами RATEIT.",
-      "• За подтверждённую продажу или передачу аккаунта предусмотрена блокировка, вплоть до перманентного бана.",
-      "",
-      "🔐 <b>ТВОЙ КОД ВХОДА: " + code + "</b>",
-      "",
-      "Код одноразовый и действует 5 минут. Если ты не запрашивал вход, просто проигнорируй это сообщение."
-    ].join("\n");
+    // Telegram renders inline <code> as a tappable copyable code block.
+    // Keep the message to the code only, as requested.
+    const botMessage = `<code>${code}</code>`;
     try {
       await sendTelegramMessage(chatId, botMessage);
     } catch (error) {
