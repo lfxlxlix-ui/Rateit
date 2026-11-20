@@ -171,12 +171,13 @@ async function authenticatedUser(request: { headers: { authorization?: string } 
   return result.rows[0];
 }
 
-app.post<{ Body: { nickname?: string; loginName?: string; email?: string; password?: string } }>("/api/v1/auth/register", async (request, reply) => {
+app.post<{ Body: { nickname?: string; loginName?: string; email?: string; password?: string; telegramRegistrationToken?: string } }>("/api/v1/auth/register", async (request, reply) => {
   if (!dbPool) return reply.code(503).send({ error: "Сервис аккаунтов временно недоступен." });
   const nickname = request.body?.nickname?.trim().replace(/\\s+/g," ");
   const loginName = request.body?.loginName?.trim();
   const email = request.body?.email?.trim().toLowerCase();
   const password = request.body?.password;
+  const telegramRegistrationToken = request.body?.telegramRegistrationToken;
   if (!nickname || nickname.length > 24 || !loginName || !/^[a-zA-Z0-9_]{3,24}$/.test(loginName) || !email || email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || !password || password.length < 8 || password.length > 128) {
     return reply.code(400).send({ error: "Проверь ник, логин (3–24 символа: латиница, цифры, _), почту и пароль (8–128 символов)." });
   }
@@ -185,6 +186,18 @@ app.post<{ Body: { nickname?: string; loginName?: string; email?: string; passwo
     await client.query("BEGIN");
     const user = await client.query("INSERT INTO users(nickname,login_name,email,password_hash) VALUES($1,$2,$3,$4) RETURNING id", [nickname,loginName,email,await passwordHash(password)]);
     const userId = user.rows[0].id as string;
+    if (telegramRegistrationToken) {
+      const ticket = await client.query(
+        "SELECT telegram_user_id FROM telegram_registration_tickets WHERE token_hash=$1 AND expires_at>now() AND consumed_at IS NULL FOR UPDATE",
+        [sha256(telegramRegistrationToken)]
+      );
+      if (!ticket.rowCount) {
+        await client.query("ROLLBACK");
+        return reply.code(400).send({ error: "Подтверждение Telegram истекло. Повтори вход через Telegram." });
+      }
+      await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'telegram',$2)", [userId, ticket.rows[0].telegram_user_id]);
+      await client.query("UPDATE telegram_registration_tickets SET consumed_at=now() WHERE token_hash=$1", [sha256(telegramRegistrationToken)]);
+    }
     await client.query("INSERT INTO player_stats(user_id,elo,level) VALUES($1,751,3)",[userId]);
     await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'email',$2)",[userId,email]);
     const token = randomBytes(32).toString("base64url");
@@ -828,19 +841,20 @@ app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegr
       }
       await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'telegram',$2) ON CONFLICT (provider,provider_user_id) DO NOTHING", [userId, telegramId]);
     } else {
-      const existing = await client.query("SELECT user_id FROM auth_identities WHERE provider='telegram' AND provider_user_id=$1", [telegramId]);
-      if (existing.rowCount) {
-        userId = existing.rows[0].user_id;
-      } else {
-        const suffix = telegramId.slice(-10);
-        const created = await client.query(
-          "INSERT INTO users(nickname,login_name) VALUES($1,$2) RETURNING id",
-          [`Игрок ${suffix.slice(-6)}`, `tg_${suffix}`]
+      const existing = await client.query(
+        "SELECT u.id,u.nickname,u.login_name,u.email FROM auth_identities ai JOIN users u ON u.id=ai.user_id WHERE ai.provider='telegram' AND ai.provider_user_id=$1",
+        [telegramId]
+      );
+      if (!existing.rowCount) {
+        const registrationToken = randomBytes(32).toString("base64url");
+        await client.query(
+          "INSERT INTO telegram_registration_tickets(telegram_user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '15 minutes') ON CONFLICT (telegram_user_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,consumed_at=NULL",
+          [telegramId, sha256(registrationToken)]
         );
-        userId = created.rows[0].id;
-        await client.query("INSERT INTO player_stats(user_id,elo,level) VALUES($1,751,3)", [userId]);
-        await client.query("INSERT INTO auth_identities(user_id,provider,provider_user_id) VALUES($1,'telegram',$2)", [userId,telegramId]);
+        await client.query("COMMIT");
+        return { verified:true, accountExists:false, registrationToken, nextStep:"registration", message:"Telegram подтверждён. Заверши регистрацию RATEIT." };
       }
+      userId = existing.rows[0].id;
     }
     const token = randomBytes(32).toString("base64url");
     await client.query("INSERT INTO auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')", [userId,sha256(token)]);
@@ -849,8 +863,9 @@ app.post<{ Body: { challengeId?: string; code?: string } }>("/api/v1/auth/telegr
     return {
       verified: true,
       token,
-      user: profile.rows[0],
-      nextStep: challenge.purpose === "link" ? "telegram_linked" : "signed_in",
+      user: challenge.purpose === "link" ? profile.rows[0] : (await client.query("SELECT id,nickname,login_name,email FROM users WHERE id=$1", [userId])).rows[0],
+      accountExists: true,
+      nextStep: challenge.purpose === "link" ? "telegram_linked" : "confirm_account",
       message: challenge.purpose === "link" ? "Telegram успешно привязан к аккаунту RATEIT." : "Вход в RATEIT через Telegram выполнен."
     };
   } catch (error) {
