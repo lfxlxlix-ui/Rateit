@@ -404,8 +404,8 @@ const authProviders = [
   { id: "facebook", label: "Facebook", mark: "f" }
 ] as const;
 
-function AuthPanel({ close }: { close: () => void }) {
-  const [mode, setMode] = useState<AuthMode>("login");
+function AuthPanel({ close, initialMode = "login" }: { close: () => void; initialMode?: AuthMode }) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
   const [loginName, setLoginName] = useState("");
@@ -464,16 +464,23 @@ function AuthPanel({ close }: { close: () => void }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ challengeId, code: telegramCode })
       });
-      const data = await response.json() as { verified?: boolean; token?: string; user?: unknown; message?: string; error?: string };
+      const data = await response.json() as { verified?: boolean; accountExists?: boolean; registrationToken?: string; token?: string; user?: unknown; message?: string; error?: string };
       if (!response.ok) throw new Error(data.error || "Код не принят.");
       setTelegramVerified(Boolean(data.verified));
-      if (data.verified && data.token) {
+      if (data.verified && data.accountExists === false && data.registrationToken) {
+        sessionStorage.removeItem("rateit-telegram-challenge");
+        sessionStorage.setItem("rateit-telegram-registration-token", data.registrationToken);
+        window.location.assign("/registration");
+        return;
+      }
+      if (data.verified && data.accountExists !== false && data.token) {
         sessionStorage.removeItem("rateit-telegram-challenge");
         localStorage.setItem("rateit-session", data.token);
         if (data.user) localStorage.setItem("rateit-user", JSON.stringify(data.user));
-        close();
+        window.location.assign("/Is-this-your-account?");
+        return;
       }
-      setNotice(data.message || "Telegram подтверждён.");
+      setNotice(data.message || "Telegram подтверждён, но не удалось определить аккаунт. Попробуй ещё раз.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ошибка проверки кода.";
       if (/недействителен|истёк|запрос авторизации/i.test(message)) {
@@ -499,7 +506,7 @@ function AuthPanel({ close }: { close: () => void }) {
       }
       const endpoint = mode === "register" ? "/api/v1/auth/register" : "/api/v1/auth/login";
       const body = mode === "register"
-        ? { nickname, loginName, email, password }
+        ? { nickname, loginName, email, password, telegramRegistrationToken: sessionStorage.getItem("rateit-telegram-registration-token") || undefined }
         : { identifier, password };
       const response = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",
@@ -510,8 +517,9 @@ function AuthPanel({ close }: { close: () => void }) {
       if (!response.ok || !data.token) throw new Error(data.error || "Не удалось выполнить вход.");
       localStorage.setItem("rateit-session", data.token);
       if (data.user) localStorage.setItem("rateit-user", JSON.stringify(data.user));
-      setNotice(mode === "register" ? "Аккаунт RATEIT создан. Ты вошёл в систему." : "Вход выполнен.");
+      if (mode === "register") sessionStorage.removeItem("rateit-telegram-registration-token");
       close();
+      window.location.assign("/");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Ошибка подключения к RATEIT API.");
     } finally {
@@ -560,14 +568,40 @@ function AuthPanel({ close }: { close: () => void }) {
   </div>;
 }
 
+function TelegramAccountConfirm() {
+  let user: { nickname?: string; login_name?: string; loginName?: string; email?: string } = {};
+  try { user = JSON.parse(localStorage.getItem("rateit-user") || "{}"); } catch {}
+  const [confirmed, setConfirmed] = useState(false);
+  return <main className="app">
+    <section className="page">
+      <small>TELEGRAM · RATEIT</small>
+      <h1 className="page-title">ЭТО <em>ТВОЙ АККАУНТ?</em></h1>
+      <article className="card profile-card">
+        <div className="profile-avatar">{(user.nickname || "R").slice(0,1).toUpperCase()}</div>
+        <h2>{user.nickname || "Аккаунт RATEIT"}</h2>
+        <p>Логин: {user.login_name || user.loginName || "—"}</p>
+        <p>Почта: {user.email || "не указана"}</p>
+        <p className="notice">Мы нашли аккаунт, привязанный к этому Telegram. Убедись, что это твой профиль.</p>
+        {!confirmed ? <div className="editor-actions">
+          <button className="primary" onClick={() => setConfirmed(true)}>ДА, ЭТО МОЙ АККАУНТ</button>
+          <button className="secondary" onClick={() => { localStorage.removeItem("rateit-session"); localStorage.removeItem("rateit-user"); window.location.assign("/"); }}>НЕТ, ВЫЙТИ</button>
+        </div> : <><p className="auth-notice">Аккаунт подтверждён.</p><button className="primary wide" onClick={() => window.location.assign("/")}>ПЕРЕЙТИ В RATEIT ↗</button></>}
+      </article>
+    </section>
+  </main>;
+}
+
 export default function App() {
   const [active, setActive] = useState<Tab>("Главная");
-  const [authOpen, setAuthOpen] = useState(false);
+  const isRegistrationPath = window.location.pathname === "/registration";
+  const isAccountConfirmPath = window.location.pathname === "/Is-this-your-account";
+  const [authOpen, setAuthOpen] = useState(isRegistrationPath);
+  if (isAccountConfirmPath) return <TelegramAccountConfirm />;
   const content = active === "Главная" ? <Home go={setActive} /> : active === "Играть" ? <Play /> : active === "Друзья" ? <Friends /> : active === "История" ? <History /> : <Profile />;
   return <main className="app">
     <header><a className="logo" onClick={() => setActive("Главная")}>RATE<span>IT</span></a><div className="online">● ПРОЕКТ В РАЗРАБОТКЕ</div><div className="header-actions"><button className="login-trigger" onClick={() => setAuthOpen(true)}>ВОЙТИ ↗</button><button className="avatar" onClick={() => setActive("Профиль")}>R</button></div></header>
     {content}
-    {authOpen && <AuthPanel close={() => setAuthOpen(false)} />}
+    {authOpen && <AuthPanel initialMode={isRegistrationPath ? "register" : "login"} close={() => { setAuthOpen(false); if (isRegistrationPath) window.location.assign("/"); }} />}
     <nav aria-label="Основная навигация">{tabs.map((t, i) => <button key={t} aria-current={active === t ? "page" : undefined} className={active === t ? "active" : ""} onClick={() => setActive(t)}><strong>{["⌂", "♧", "+", "▤", "◉"][i]}</strong>{t}</button>)}</nav>
   </main>;
 }
