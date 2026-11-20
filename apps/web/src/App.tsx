@@ -424,6 +424,9 @@ function AuthPanel({ close }: { close: () => void }) {
     setTelegramBusy(true);
     setNotice("");
     setTelegramVerified(false);
+    setTelegramChallengeId("");
+    setTelegramCode("");
+    sessionStorage.removeItem("rateit-telegram-challenge");
     try {
       const response = await fetch(`${apiBase}/api/v1/auth/telegram/start`, {
         method: "POST",
@@ -431,13 +434,13 @@ function AuthPanel({ close }: { close: () => void }) {
         body: JSON.stringify({ purpose: "login" })
       });
       const data = await response.json() as { challengeId?: string; botUrl?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || "Не удалось начать вход через Telegram.");
-      setTelegramChallengeId(data.challengeId || "");
-      setTelegramBotUrl(data.botUrl || "");
-      if (data.botUrl && telegramWindow) telegramWindow.location.href = data.botUrl;
-      else telegramWindow?.close();
-      setTelegramCode("");
-      setNotice("Открой бота по кнопке ниже и нажми Start. Он пришлёт одноразовый код.");
+      if (!response.ok || !data.challengeId || !data.botUrl) throw new Error(data.error || "Не удалось создать запрос авторизации. Нажми Telegram ещё раз.");
+      sessionStorage.setItem("rateit-telegram-challenge", data.challengeId);
+      setTelegramChallengeId(data.challengeId);
+      setTelegramBotUrl(data.botUrl);
+      if (telegramWindow) telegramWindow.location.href = data.botUrl;
+      else window.open(data.botUrl, "_blank", "noopener,noreferrer");
+      setNotice("Открой бота по кнопке ниже и нажми Start один раз. Введи самый свежий код из этого запроса.");
     } catch (error) {
       telegramWindow?.close();
       setNotice(error instanceof Error ? error.message : "Ошибка подключения к RATEIT API.");
@@ -448,25 +451,36 @@ function AuthPanel({ close }: { close: () => void }) {
 
   const verifyTelegramCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const challengeId = telegramChallengeId || sessionStorage.getItem("rateit-telegram-challenge") || "";
+    if (!challengeId || !/^[0-9a-f-]{36}$/i.test(challengeId)) {
+      setNotice("Запрос авторизации потерян. Нажми Telegram ещё раз, открой бота и запроси новый код.");
+      return;
+    }
     setTelegramBusy(true);
     setNotice("");
     try {
       const response = await fetch(`${apiBase}/api/v1/auth/telegram/verify`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ challengeId: telegramChallengeId, code: telegramCode })
+        body: JSON.stringify({ challengeId, code: telegramCode })
       });
       const data = await response.json() as { verified?: boolean; token?: string; user?: unknown; message?: string; error?: string };
       if (!response.ok) throw new Error(data.error || "Код не принят.");
       setTelegramVerified(Boolean(data.verified));
       if (data.verified && data.token) {
+        sessionStorage.removeItem("rateit-telegram-challenge");
         localStorage.setItem("rateit-session", data.token);
         if (data.user) localStorage.setItem("rateit-user", JSON.stringify(data.user));
         close();
       }
       setNotice(data.message || "Telegram подтверждён.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Ошибка проверки кода.");
+      const message = error instanceof Error ? error.message : "Ошибка проверки кода.";
+      if (/недействителен|истёк|запрос авторизации/i.test(message)) {
+        sessionStorage.removeItem("rateit-telegram-challenge");
+        setTelegramChallengeId("");
+      }
+      setNotice(message);
     } finally {
       setTelegramBusy(false);
     }
