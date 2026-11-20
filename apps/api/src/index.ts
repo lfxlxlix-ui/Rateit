@@ -961,9 +961,26 @@ app.post<{ Body: { message?: { text?: string; from?: { id?: number }; chat?: { i
   }
   client.release();
   if (challengeId) {
-    // Telegram renders inline <code> as a tappable copyable code block.
-    // Keep the message to the code only, as requested.
-    const botMessage = `<code>${code}</code>`;
+    // Keep the full account-security notice; Telegram's inline <code> is tappable to copy.
+    const account = await dbPool.query(
+      "SELECT EXISTS (SELECT 1 FROM auth_identities WHERE provider='telegram' AND provider_user_id=$1) AS exists",
+      [String(telegramUserId)]
+    );
+    const accountNotice = account.rows[0]?.exists
+      ? ""
+      : "\\n\\nℹ️ <b>Аккаунт RATEIT ещё не создан.</b> После подтверждения кода на сайте заполни форму регистрации.";
+    const botMessage = [
+      "⚠️ <b>БЕЗОПАСНОСТЬ АККАУНТА RATEIT</b>",
+      "",
+      "• Никому не сообщай этот код — даже людям, представляющимся администрацией RATEIT.",
+      "• Сотрудники RATEIT никогда не запрашивают код авторизации.",
+      "• Передача, продажа, покупка и аренда аккаунтов запрещены правилами RATEIT.",
+      "• За подтверждённую продажу или передачу аккаунта предусмотрена блокировка, вплоть до перманентного бана.",
+      "",
+      "🔐 <b>ТВОЙ КОД ВХОДА:</b> <code>" + code + "</code>",
+      "",
+      "Код одноразовый и действует 5 минут. Если ты не запрашивал вход, просто проигнорируй это сообщение." + accountNotice
+    ].join("\\n");
     try {
       await sendTelegramMessage(chatId, botMessage);
     } catch (error) {
