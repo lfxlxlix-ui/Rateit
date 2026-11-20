@@ -498,7 +498,7 @@ app.get("/api/v1/leaderboard",async()=>{
     `SELECT ranked.id,ranked.nickname,ranked.elo,ranked.level,ranked.matches_played,ranked.wins,ranked.losses,ranked.position,
             CASE WHEN ranked.position<=1000 THEN true ELSE false END AS challenger
      FROM (
-       SELECT u.id,u.nickname,COALESCE(ps.elo,750) AS elo,COALESCE(ps.level,3) AS level,
+       SELECT u.id,u.nickname,COALESCE(ps.elo,750) AS elo,COALESCE(ps.level,2) AS level,
               COALESCE(ps.matches_played,0) AS matches_played,COALESCE(ps.wins,0) AS wins,COALESCE(ps.losses,0) AS losses,
               row_number() OVER(ORDER BY COALESCE(ps.elo,750) DESC,COALESCE(ps.wins,0) DESC,u.created_at ASC) AS position
        FROM users u LEFT JOIN player_stats ps ON ps.user_id=u.id
