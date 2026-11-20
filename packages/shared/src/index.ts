@@ -1,4 +1,4 @@
-export const START_ELO = 751;
+export const START_ELO = 750;
 export const MAX_HOURS_DIFFERENCE = 50;
 export const MAX_PLAYER_HOURS = 100_000;
 export const MAX_NICKNAME_LENGTH = 24;
